@@ -54,6 +54,7 @@
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "clean": "rm -rf dist dist-test",
+    "prepare": "npm run build",
     "test": "npm run build && npm run build:test && node --test dist-test/test/*.test.js",
     "prepack": "npm run clean && npm run build"
   },
