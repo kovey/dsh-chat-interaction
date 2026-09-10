@@ -7,7 +7,9 @@ npm-debug.log*
 package-lock.json
 
 # ---- 构建产物 ----
-dist/
+# dist/ 入库：插件按 dsh 生态惯例「免构建安装」——github: 安装时 pnpm 10
+# 默认禁止依赖执行构建脚本（ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED），
+# 提交构建产物后 `dsh plugin add github:kovey/dsh-chat-interaction` 开箱可用。
 dist-test/
 *.tsbuildinfo
 

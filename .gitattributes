@@ -1,0 +1,3 @@
+# 构建产物入库（免构建安装），在 GitHub 上折叠 diff
+dist/** linguist-generated=true
+dist/** -diff

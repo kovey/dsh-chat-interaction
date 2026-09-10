@@ -39,39 +39,31 @@
 
 **依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1`
 + `cordis@^4.0.2` —— 与 dsh 0.1.5-rc.1 官方宿主提供的版本一致（`dsh --version` 可确认），
-pnpm 会直接复用、不会装第二份。第 ① 步的 `pnpm install` 同时把官方包装进本包的
-`node_modules`（link 安装的插件靠它满足运行时解析，dsh-feishu 同理）。
+pnpm 会直接复用、不会装第二份。
 
 ```sh
-# ① 构建（必须：profile 加载的是 dist/，本包是 TS 项目）
-cd /path/to/dsh-chat-interaction
-pnpm install && pnpm build
+# ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-# ② 放进 dsh 插件目录（软链，便于后续改代码）
-ln -sfn "$PWD" ~/.dsh/plugins/dsh-chat-interaction
-
-# ③ 加进 TUI profile 的依赖
-#    `dsh plugin --profile <name> ...` 就是在该 profile 目录内执行 pnpm
-dsh plugin --profile tui add link:$HOME/.dsh/plugins/dsh-chat-interaction
+#    需要可复现的固定版本时，pin 到 tag：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.0
 ```
 
-④ 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
+② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
 
 ```jsonc
 "dsh": {
   "profile": {
     "bundles": [
       "@deepseek-ai/dsh-base",
-      "dsh-nvim-tui",
-      "dsh-feishu",
-      "dsh-vision-bridge",
-      "dsh-chat-interaction"        // ← 新增
+      "dsh-nvim-tui",                // 原有 bundle 保留
+      "dsh-chat-interaction"         // ← 新增本插件
     ]
   }
 }
 ```
 
-⑤ 重启 TUI 会话。加载后插件自带 `cordis.patch.yml` 会 insert 一行
+③ 重启 TUI 会话。加载后插件自带 `cordis.patch.yml` 会 insert 一行
 `id: chatInteraction / name: dsh-chat-interaction/plugin`，即完成挂载。
 
 确认装上了（重启后应能看到这些日志）：
@@ -80,14 +72,32 @@ dsh plugin --profile tui add link:$HOME/.dsh/plugins/dsh-chat-interaction
 grep -E "chat-interaction (applying|ready)|channel registered|_\* tools registered" ~/.dsh/chat-interaction.log | tail
 ```
 
+> `dsh plugin --profile <name> ...` 就是在该 profile 目录内执行 pnpm；
+> `bundles` 列表决定 loader 是否加载该包。**只 add 不加 bundles = 装了但不加载。**
+
+<details>
+<summary>开发模式：用本地源码（改动即时生效，需自行构建）</summary>
+
+```sh
+cd /path/to/dsh-chat-interaction
+pnpm install && pnpm build            # 改完 TS 必须重新 build（profile 加载的是 dist/）
+ln -sfn "$PWD" ~/.dsh/plugins/dsh-chat-interaction
+dsh plugin --profile tui add link:$HOME/.dsh/plugins/dsh-chat-interaction
+```
+
+link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，然后重启会话。
+开发期改代码 → `pnpm build` → 重启（或重新 install）即可看到效果。
+</details>
+
+**卸载**：`dsh plugin --profile tui remove dsh-chat-interaction` → 从 `bundles` 删掉该行
+→（若是 link 安装）`rm ~/.dsh/plugins/dsh-chat-interaction` → 重启。
+
 > 为什么是 `/plugin` 子路径：包根 `dsh-chat-interaction` 是 harness-free 的核心
 > （hub/渠道/打分/路由），不导出 `apply`；`/plugin` 入口才带 DSH 运行时绑定
 > （官方 `createUserMessage` / `defineTool` / `installModelSelection`）。
 > `apply()` 同时接受**真实 cordis ctx**（`ctx.agents.roots()` / `ctx.tools.register()`
 > / `ctx.systemPrompt.section()` / `ctx.effect()`，自动经 `harnessFromCordis()` 适配）
 > 与已扁平化的 `HarnessContext`（测试/自定义宿主）。
-
-**卸载**：`dsh plugin --profile tui remove dsh-chat-interaction` → 从 `bundles` 删掉该行 → `rm ~/.dsh/plugins/dsh-chat-interaction` → 重启。
 
 ### 2. 配置
 
@@ -288,7 +298,8 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 
 | 症状 | 排查 |
 |---|---|
-| agent 没有 `feishu_*` 工具 | `dist/` 未构建（先 `pnpm build`）；`bundles` 未加包名；会话未重启 |
+| agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
+| 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
 | 插件"没反应" | 这是预期：**默认不连接**。要么明确让 agent 连接，要么把 config 里 `role` 设为 `listener`（部署决策） |
