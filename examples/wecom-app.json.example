@@ -1,0 +1,8 @@
+{
+  "_comment": "复制为 <项目>/.dsh/wecom-app.json 或 ~/.dsh/wecom-app.json，然后 chmod 600。token/aes_key 只在用内置回调服务器时需要；agent_id 可选。",
+  "corp_id": "wwxxxxxxxxxxxxxxxx",
+  "corp_secret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "agent_id": "1000002",
+  "token": "回调Token",
+  "aes_key": "43位EncodingAESKey"
+}

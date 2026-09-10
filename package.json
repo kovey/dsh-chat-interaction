@@ -1,0 +1,83 @@
+{
+  "name": "dsh-chat-interaction",
+  "version": "0.1.0",
+  "description": "Abstract interaction layer between DeepSeek Harness (DSH) and IM platforms (Feishu, WeCom, ...). Channel-agnostic hub with proven interaction patterns (dedupe, instant ack, wait-reply, followup wakeup, scoring-based model routing, approval gate) plus pluggable adapters for Feishu and WeCom.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin-entry.d.ts",
+      "import": "./dist/plugin-entry.js"
+    },
+    "./adapters/feishu": {
+      "types": "./dist/adapters/feishu.d.ts",
+      "import": "./dist/adapters/feishu.js"
+    },
+    "./adapters/wecom": {
+      "types": "./dist/adapters/wecom.d.ts",
+      "import": "./dist/adapters/wecom.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "examples/",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "feishu",
+    "lark",
+    "wecom",
+    "wechat-work",
+    "chat",
+    "interaction",
+    "plugin"
+  ],
+  "dsh": {
+    "runtime": "host",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "clean": "rm -rf dist dist-test",
+    "test": "npm run build && npm run build:test && node --test dist-test/test/*.test.js",
+    "prepack": "npm run clean && npm run build"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1",
+    "@larksuiteoapi/node-sdk": ">=1.60.0"
+  },
+  "peerDependenciesMeta": {
+    "@larksuiteoapi/node-sdk": {
+      "optional": true
+    },
+    "@wecom/crypto": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.5.0"
+  }
+}

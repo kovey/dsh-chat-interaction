@@ -1,0 +1,10 @@
+# dsh-chat-interaction bundle patch: mounts the interaction-layer plugin under
+# the stable plugin id `chatInteraction`.
+#
+# NOTE: the plugin entry is the `/plugin` subpath — the package root
+# (`dsh-chat-interaction`) is the harness-free core (hub, channels, scoring)
+# and does not export `apply`. The `/plugin` entry carries the DSH-bound half
+# (official createUserMessage / defineTool / installModelSelection wiring).
+- insert:
+    - id: chatInteraction
+      name: 'dsh-chat-interaction/plugin'

@@ -1,0 +1,5 @@
+{
+  "_comment": "复制为 <项目>/.dsh/feishu-app.json 或 ~/.dsh/feishu-app.json，然后 chmod 600。飞书开放平台 → 开发者后台 → 凭证与基础信息。",
+  "app_id": "cli_xxxxxxxxxxxxxxxx",
+  "app_secret": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}

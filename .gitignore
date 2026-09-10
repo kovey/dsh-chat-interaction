@@ -1,0 +1,23 @@
+# ---- 依赖与包管理器 ----
+node_modules/
+.pnpm-store/
+.npm-cache/
+.pnpm-debug.log*
+npm-debug.log*
+package-lock.json
+
+# ---- 构建产物 ----
+dist/
+dist-test/
+*.tsbuildinfo
+
+# ---- 凭证（真实密钥绝不入库；examples/*.example 模板除外）----
+*-app.json
+.dsh/
+.env
+.env.*
+
+# ---- 运行时/测试产物 ----
+coverage/
+*.log
+.DS_Store
