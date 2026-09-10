@@ -167,12 +167,25 @@ grep -E "chat-interaction (applying|ready)|channel registered|_\* tools register
 > `wecom_listener` 会返回「未配置回调服务；通过 feed() 接入外部中间件」；
 > 用自己的网关解密后调 `WeComChannel.feed(xml)` 即可。
 
+**企业微信智能机器人**（`wecom-bot.json`，免公网回调）
+
+```jsonc
+// <项目>/.dsh/wecom-bot.json   或   ~/.dsh/wecom-bot.json
+{ "bot_id": "your-bot-id", "bot_secret": "your-bot-secret" }
+```
+
+怎么拿：企业微信管理后台 → **智能机器人**（AI 机器人）→ 创建/进入机器人 → 复制
+**机器人 ID** 与 **Secret**。长连接默认 `wss://openws.work.weixin.qq.com`
+（私有部署的使用管理端给出的地址，配 `wsUrl`）——**不需要回调 URL、不需要公网 IP**，
+也不需要企业可信 IP。
+
 **环境变量方式**（不落盘密钥，适合 CI / 多机）：
 
 | 渠道 | 变量 |
 |---|---|
 | 飞书 | `FEISHU_APP_ID`、`FEISHU_APP_SECRET` |
-| 企业微信 | `WECOM_CORP_ID`、`WECOM_CORP_SECRET`、`WECOM_AGENT_ID`、`WECOM_TOKEN`、`WECOM_AES_KEY` |
+| 企业微信（自建应用） | `WECOM_CORP_ID`、`WECOM_CORP_SECRET`、`WECOM_AGENT_ID`、`WECOM_TOKEN`、`WECOM_AES_KEY` |
+| 企业微信（智能机器人） | `WECOM_BOT_ID`、`WECOM_BOT_SECRET` |
 
 profile 的 patch 支持 `!!js` 表达式，也可以从环境变量注入而不写明文：
 
@@ -209,6 +222,8 @@ grep -E "bot open_id discovered|ws listener started|access token refreshed|callb
 | `40013 invalid corpid` | 企微 `corp_id` 不对（注意不是 AgentId） |
 | `60020 not allow to access from your ip` | 企微未配置企业可信 IP |
 | 回调 `signature mismatch` | `token` / `aes_key` 与后台不一致，或 URL 路径与 `callback.path` 不一致 |
+| 智能机器人 `missing bot credentials (...)` | `botId`/`secret` 四类来源都没配（注意它不是 corpId/corpSecret） |
+| 智能机器人连不上 / 反复重连 | 机器人 ID 或 Secret 错、机器人未启用；日志里有 `[aibot]` 前缀的重连记录 |
 
 **c) 模型 key**（打分/路由分类/闲聊直答要用模型时）：
 
@@ -303,6 +318,7 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 | dsh-feishu 里的能力 | 本层的对应物 | 说明 |
 |---|---|---|
 | WS 入站 `im.message.receive_v1` | `FeishuChannel.connect()` | 卡片点击重建卡片并合成 `[飞书卡片点击]` 消息 |
+| 企微智能机器人长连接 | `WeComBotChannel.connect()` | 官方 `@wecom/aibot-node-sdk`；免公网回调 |
 | `agent.followup(createUserMessage(...))` | `DshBridge.followup()` — 官方 `createUserMessage` | 用户回合同款格式，`[渠道消息] chat_id: ...` |
 | `feishu_send_message / _send_card / _wait_reply / _listener / _auth_state` | `buildChannelTools()` 按渠道前缀生成，经官方 `defineTool` 编译注册 | 工具 schema/render/超时与原版一致；`wait_reply` 消费消息、不产生新回合 |
 | 消息去重 + spool tee + active-chat 状态 | `InteractionHub.dispatch()` 管线 | 按渠道+message_id 去重；状态文件按项目且按渠道隔离（`feishu-*` / `wecom-*`） |
@@ -324,9 +340,27 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 - **出站**：text / post（富文本）/ interactive 卡片；卡片按 message_id 存档供点击重建。
 - 凭证链（逐字段）：config → `credsFile` → `<项目>/.dsh/feishu-app.json` → `~/.dsh/feishu-app.json` → `FEISHU_APP_ID`/`FEISHU_APP_SECRET`。详见「使用 → 渠道凭证」。
 
-### 企业微信（`adapters/wecom.ts`）
+### 企业微信：两条接入路径
 
-企业微信没有 WS 推送：自建应用靠**回调 URL** 收事件（平台 POST 加密 XML）。适配器提供两种入站传输，归一化成同一种 `InboundMessage`：
+企业微信有**两种**机器人形态，本层两条都支持（对应两个渠道名）：
+
+| | `wecom` — 自建应用 | `wecom_bot` — 智能机器人（WS 长连接） |
+|---|---|---|
+| 凭证 | `corpId` + `corpSecret`（+ `agentId`） | `botId` + `secret` |
+| 入站 | **HTTP 回调**（平台 POST 加密 XML）或 `feed()` | **WebSocket 长连接** `wss://openws.work.weixin.qq.com`，SDK 自带认证/心跳/重连 |
+| 需要公网 IP | 是（回调 URL 必须公网可达） | **否** |
+| 出站 | `message/send`（text / markdown / template_card，2048 字节分片） | `sendMessage`（text / markdown / template_card，支持流式回复） |
+| 卡片点击 | `template_card_event`（无 ChatId，靠 `task_id` 映射回查） | `event.template_card_event`（帧内自带 chatid/userid，无需映射） |
+| 图片 | `media/get` 下载 | 帧内 URL + 每消息独立 `aeskey`（SDK `downloadFile` 解密） |
+| 官方 SDK | 无（HTTP + 内置算法） | `@wecom/aibot-node-sdk`（可选 peer，惰性加载） |
+
+> 之前版本 README 写的「企业微信没有 WS 推送」只对**自建应用**成立；
+> 智能机器人（AI 机器人）自 2026 年起提供官方长连接通道，
+> 见 [智能机器人长连接文档](https://developer.work.weixin.qq.com/document/path/101463)。
+
+#### `wecom` — 自建应用（回调 / feed）
+
+适配器提供两种入站传输，归一化成同一种 `InboundMessage`：
 
 1. **内置 node:http 回调服务器**（配 `callback.port` + `token` + `aesKey`）——自带 URL 校验、签名校验、AES 解密；
 2. **`feed(payload)` 推入接口**——把解密后的事件 XML（或已解析对象）喂进来即可，方便挂 Express/Nest/网关中间件。
@@ -335,6 +369,19 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 - **卡片点击**：企业微信点击事件**不带 ChatId**，只有 TaskId+EventKey——适配器发送卡片时持久化 `task_id → {chatId, buttons}` 映射，点击时还原出正确的 chat 和按钮值。
 - 解密优先用官方 `@wecom/crypto`（若已安装），否则用内置的文档算法实现（AES-256-CBC + PKCS7 + 16 字节随机前缀 + 4 字节长度），零依赖可用。
 - 凭证链（与飞书一致，逐字段）：config → `credsFile` → `<项目>/.dsh/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_CORP_ID`/`WECOM_CORP_SECRET`/`WECOM_AGENT_ID`/`WECOM_TOKEN`/`WECOM_AES_KEY`。只发不收时可省 `token`/`aes_key`。
+
+#### `wecom_bot` — 智能机器人（WS 长连接，免公网）
+
+- **入站**：官方长连接通道，帧结构 `{ headers: { req_id }, body: { msgid, chattype, chatid?, from.userid, msgtype, ... } }`；
+  群聊取 `chatid`、单聊取 `from.userid` 作为会话 id（正好也是回复用的 `chatid`）。
+- **事件**：`message.text/image/mixed/voice/file/video` 归一化成消息；`event.template_card_event` 归一化成卡片点击
+  （`text = event_key`）；`event.enter_chat` / `event.feedback_event` 不作为回合。
+- **图片**：帧内 URL + 每消息独立 `aeskey`，由 SDK `downloadFile()` 解密后落到 `<项目>/.dsh/wecom_bot-media/`。
+- **出站**：`sendMessage(chatid, body)`；`sendText` 先试 `text` 帧、失败自动回落 `markdown`；卡片用 `template_card.button_interaction`。
+- **凭证链**：config(`botId`/`secret`) → `credsFile` → `<项目>/.dsh/wecom-bot.json` → `~/.dsh/wecom-bot.json`
+  → `<项目>/.dsh/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_BOT_ID`/`WECOM_BOT_SECRET`
+  （文件键 `bot_id`/`bot_secret`，兼容 `aibot_id`）。
+- **依赖**：`pnpm add @wecom/aibot-node-sdk`（可选 peer；未装时只有该渠道不可用，其余功能不受影响）。
 
 ### 自定义渠道（钉钉 / Telegram / Slack / ...）
 
@@ -473,6 +520,15 @@ scoring: {
       callback: { host: '0.0.0.0', port: 8787, path: '/wecom' },
       mediaRetentionDays: 7,
     },
+    // 智能机器人（WS 长连接，与上面的自建应用二选一或并存）
+    wecom_bot: {
+      enabled: true,
+      role: 'off',
+      botId: '', secret: '',            // 留空走 wecom-bot.json 链 / WECOM_BOT_* 环境变量
+      wsUrl: '',                        // 私有部署的长连接地址（默认官方 wss://openws.work.weixin.qq.com）
+      credsFile: '',
+      mediaRetentionDays: 7,
+    },
   },
   channelFactories: { /* 自定义渠道: { ding: (cfg) => new DingChannel(cfg) } */ },
 }
@@ -510,7 +566,7 @@ src/
 
 ```sh
 pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.5-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为可选 peer
-npm test          # build + 92 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
+npm test          # build + 103 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
 npm run build     # 产物在 dist/
 ```
 

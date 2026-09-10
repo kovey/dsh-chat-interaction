@@ -142,3 +142,11 @@ export {
     wecomSignature,
 } from './adapters/wecom.js'
 export type { WeComChannelConfig, WeComCreds, WeComCryptoLike } from './adapters/wecom.js'
+
+// 企业微信智能机器人（WS 长连接，免公网回调）
+export {
+    WeComBotChannel,
+    createWeComBotChannel,
+    resolveWeComBotCreds,
+} from './adapters/wecom-bot.js'
+export type { AiBotClientLike, AiBotFrameLike, AiBotSdkLike, WeComBotChannelConfig, WeComBotCreds } from './adapters/wecom-bot.js'

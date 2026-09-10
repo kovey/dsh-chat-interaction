@@ -1,0 +1,5 @@
+{
+  "_comment": "复制为 <项目>/.dsh/wecom-bot.json 或 ~/.dsh/wecom-bot.json，然后 chmod 600。企业微信管理后台 → 智能机器人 → 机器人 ID / Secret。",
+  "bot_id": "your-bot-id",
+  "bot_secret": "your-bot-secret"
+}

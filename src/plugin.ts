@@ -34,6 +34,8 @@ import { createFeishuChannel } from './adapters/feishu.js'
 import type { FeishuChannelConfig } from './adapters/feishu.js'
 import { createWeComChannel } from './adapters/wecom.js'
 import type { WeComChannelConfig } from './adapters/wecom.js'
+import { createWeComBotChannel } from './adapters/wecom-bot.js'
+import type { WeComBotChannelConfig } from './adapters/wecom-bot.js'
 import { expandHome, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js'
 import { log, setLogFile } from './log.js'
 import type { LogFn } from './log.js'
@@ -89,7 +91,13 @@ export interface PluginConfig {
     }
     channels?: {
         feishu?: FeishuChannelConfig & ChannelEntryConfig
+        /** 自建应用：HTTP 回调（加密 XML）或 feed() 推送。 */
         wecom?: WeComChannelConfig & ChannelEntryConfig
+        /**
+         * 智能机器人：WebSocket 长连接（wss://openws.work.weixin.qq.com），
+         * 免公网回调；凭证是 botId + secret（不是 corpId/corpSecret）。
+         */
+        wecom_bot?: WeComBotChannelConfig & ChannelEntryConfig
     }
     /** Adapters for platforms beyond the built-ins, e.g. { dingtalk: (cfg) => ... }. */
     channelFactories?: Record<string, ChannelFactory>
@@ -192,8 +200,9 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
     const buildAdapter = (name: string, channelCfg: ChannelEntryConfig & Record<string, unknown>): ChannelAdapter => {
         if (name === 'feishu') return createFeishuChannel(channelCfg as FeishuChannelConfig)
         if (name === 'wecom') return createWeComChannel(channelCfg as WeComChannelConfig)
+        if (name === 'wecom_bot') return createWeComBotChannel(channelCfg as WeComBotChannelConfig)
         const factory = config.channelFactories?.[name]
-        if (!factory) throw new Error(`no adapter for channel "${name}" (built-ins: feishu, wecom; or pass channelFactories)`)
+        if (!factory) throw new Error(`no adapter for channel "${name}" (built-ins: feishu, wecom, wecom_bot; or pass channelFactories)`)
         return factory(channelCfg)
     }
 
