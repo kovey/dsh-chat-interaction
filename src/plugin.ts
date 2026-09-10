@@ -36,6 +36,8 @@ import { createWeComChannel } from './adapters/wecom.js'
 import type { WeComChannelConfig } from './adapters/wecom.js'
 import { createWeComBotChannel } from './adapters/wecom-bot.js'
 import type { WeComBotChannelConfig } from './adapters/wecom-bot.js'
+import { ChannelLease } from './lease.js'
+import type { InstanceRole } from './lease.js'
 import { expandHome, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js'
 import { log, setLogFile } from './log.js'
 import type { LogFn } from './log.js'
@@ -101,6 +103,27 @@ export interface PluginConfig {
     }
     /** Adapters for platforms beyond the built-ins, e.g. { dingtalk: (cfg) => ... }. */
     channelFactories?: Record<string, ChannelFactory>
+    /**
+     * Channel lease: only one instance owns a channel's connection at a time.
+     * An `interactive` (TUI) instance preempts a `service` (24×7 headless)
+     * holder; the service takes the channel back once the TUI releases or its
+     * heartbeat expires — the launchd-service ⇄ TUI heartbeat takeover.
+     */
+    lease?: {
+        enabled?: boolean
+        /** Lease directory; default the DSH home (~/.dsh). */
+        dir?: string
+        /** A heartbeat older than this counts as a dead owner (default 90s). */
+        ttlMs?: number
+        /** Renewal interval (default 30s). */
+        heartbeatMs?: number
+        /**
+         * This process's role. Default: `service` when any channel is
+         * configured with `role: 'listener'` (a 24×7 deployment), else
+         * `interactive`.
+         */
+        role?: InstanceRole
+    }
     /** Custom logger override. */
     log?: LogFn
 }
@@ -147,6 +170,8 @@ export interface DshChatLayer {
     hub: InteractionHub
     bridge: DshBridge
     adapters: Map<string, ChannelAdapter>
+    /** Per-channel leases (heartbeat takeover); empty when disabled. */
+    leases: Map<string, ChannelLease>
     config: ResolvedPluginConfig
     scoring: ResolvedScoringConfig
     connect(channel: string): Promise<ListenerStatus>
@@ -291,10 +316,47 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         log('info', `router enabled (model=${routerCfg.model}, autoReply=${routerCfg.autoReply})`)
     }
 
+    // ---- channel lease (heartbeat takeover between service and TUI) --------
+    const channelEntriesCfg = (config.channels || {}) as Record<string, ChannelEntryConfig | undefined>
+    const serviceMode = Object.values(channelEntriesCfg).some((c) => c?.role === 'listener')
+    const instanceRole: InstanceRole = (config.lease && config.lease.role) || (serviceMode ? 'service' : 'interactive')
+    const leaseEnabled = config.lease?.enabled !== false
+    const leases = new Map<string, ChannelLease>()
+
+    /** Channels this instance is supposed to be serving (survives a takeover). */
+    const desired = new Set<string>()
+
+    const connectChannel = async (channel: string): Promise<ListenerStatus & { ok: boolean }> => {
+        const lease = leases.get(channel)
+        if (lease) {
+            const r = lease.acquire()
+            if (!r.ok) {
+                log('warn', `connect(${channel}) refused: ${r.reason}`)
+                return {
+                    ok: false,
+                    connected: false,
+                    error: `${r.reason} — 另一个实例正在服务该渠道（可用 lease.enabled:false 关闭租约接管）`,
+                }
+            }
+            lease.start() // renew + watch for preemption
+        }
+        const st = await hub.connect(channel)
+        if (!st.ok && lease) lease.release() // never hold a lease for a dead connection
+        if (st.ok) desired.add(channel)
+        return st
+    }
+
+    const disconnectChannel = async (channel: string): Promise<ListenerStatus & { ok: boolean }> => {
+        desired.delete(channel)
+        const st = await hub.disconnect(channel)
+        leases.get(channel)?.release()
+        return st
+    }
+
     // ---- per-channel: tools + prompt + listener control --------------------
     const listenerControl = (channel: string, action: string): Promise<ListenerStatus & { ok: boolean }> => {
-        if (action === 'start') return hub.connect(channel)
-        if (action === 'stop') return hub.disconnect(channel)
+        if (action === 'start') return connectChannel(channel)
+        if (action === 'stop') return disconnectChannel(channel)
         if (action === 'status') return Promise.resolve({ ...hub.status(channel), ok: true })
         return Promise.resolve({ ok: false, connected: false, error: `unknown action: ${action} (可选 start|stop|status)` })
     }
@@ -412,6 +474,7 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         if (tornDown) return
         tornDown = true
         hub.teardown()
+        for (const lease of leases.values()) lease.dispose() // stop heartbeats + release
         bridge.dispose() // restore any transient model overrides + stop pollers
         log('info', `${name} torn down`)
     }
@@ -422,11 +485,39 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         }
     }
 
+    // ---- leases: created for every channel, engaged on connect -------------
+    if (leaseEnabled) {
+        for (const chName of adapters.keys()) {
+            const lease = new ChannelLease({
+                channel: chName,
+                role: instanceRole,
+                dir: config.lease?.dir ? expandHome(config.lease.dir) : undefined,
+                ttlMs: config.lease?.ttlMs,
+                heartbeatMs: config.lease?.heartbeatMs,
+                log: config.log,
+            })
+            lease.onLost(() => {
+                // another instance took the channel over: stop serving it here,
+                // keep wanting it (desired) so we take it back when they go away
+                log('warn', `lease lost on ${chName}; disconnecting this instance's listener`)
+                void hub.disconnect(chName).catch(() => { /* best effort */ })
+            })
+            lease.onAcquired(() => {
+                // the other instance released (or went stale): take the channel back
+                if (!desired.has(chName)) return
+                log('info', `lease re-acquired on ${chName}; reconnecting this instance's listener`)
+                void connectChannel(chName).catch(() => { /* best effort */ })
+            })
+            leases.set(chName, lease)
+        }
+        log('info', `channel lease enabled (role=${instanceRole}, takeover=${instanceRole === 'interactive' ? 'preempts service' : 'waits for free'})`)
+    }
+
     // ---- connection policy: opt-in by default ------------------------------
     for (const [chName, chCfg] of Object.entries(config.channels || {})) {
         if (chCfg?.role === 'listener') {
             log('info', `role=listener: connecting channel ${chName} at startup (deployment decision)`)
-            void hub.connect(chName).then((s) => {
+            void connectChannel(chName).then((s) => {
                 if (!s.ok) log('error', `${chName} startup connect failed:`, s.error || '')
             })
         } else {
@@ -440,10 +531,11 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         hub,
         bridge,
         adapters,
+        leases,
         config: cfg,
         scoring,
-        connect: (channel) => hub.connect(channel),
-        disconnect: (channel) => hub.disconnect(channel),
+        connect: (channel) => connectChannel(channel),
+        disconnect: (channel) => disconnectChannel(channel),
         status: (channel) => hub.status(channel),
         authState,
         teardown,

@@ -430,15 +430,62 @@ class DingChannel extends BaseChannel {
 | 分类 | 处理 | 说明 |
 |---|---|---|
 | `task` | 转交 agent | 该会话存在未过期的 task-active 标记（8h TTL）→ 任务期间不拦截任何消息，保证流程连续 |
-| `confirmation` | 插件内闭环 | 有 pending 问题时解析答案（选项字母 / 是/否/同意 / 全自动/需审批）；权限模式卡会写 `<repo>/.dsh/<渠道>-permission-mode.txt`；**非答案**则保持问题打开并转交 agent |
+| `confirmation` | 插件内闭环 | 有 pending 问题时解析答案（选项字母 / 是/否/同意 / 全自动/需审批 / 取消）；权限模式选择写入 `<项目>/.dsh/<渠道>-permission-mode.txt`（并重置 allowlist）后**继续推进任务**；**看起来像新指令**的消息绝不吞掉——保持问题打开并转交 agent |
 | `command` | 插件内执行 | 安全层：白名单前缀 + 禁止规则；危险命令（`git push`、`rm -rf`、`cat .env`、`deploy`…）**不执行**，转交 agent 走审批流程；输出截断后回执 |
-| `requirement` / `bugfix` | 转交 agent | 带路由说明（摘要/文档链接/报错） |
-| `chat` | 插件内直答 | 有模型 key 时用每 chat 会话记忆直答；无 key 自动回落转交 agent |
+| `requirement` / `bugfix` | 转交 agent **+ 自动发权限模式卡** | 插件发「[需要确认] 权限模式」卡（A 全自动 / B 需审批）+「[收到] 需求已接收」回执，记为 pending；agent 同时开始分析（收到卡片前不重复询问权限模式） |
+| `chat` | 插件内直答 / 消歧 | 有模型 key 时用每 chat 会话记忆直答；**无 key 时发「[消歧] 未识别消息」卡**（1 新指令 / 2 闲聊忽略 / 3 其它）——选 1 会把**原文**重放给 agent（不是按钮值），选 2 直接忽略 |
 
 - **分类器**：`evaluator: 'auto'`（默认）= 有 key 用模型评估、失败回落规则；`'rule'` = 永不花模型调用；`'model'` = 只用模型。
+- **自动发起**：`autoPermissionCard`（默认 true，任务类消息发权限模式卡）、`autoDisambiguation`（默认 true，无法分类且无模型时发消歧卡）；都可用 `false` 关闭。
+- 关闭自动发起后行为回落到"全部转交 agent"，管线依然完整。
 - **命令安全层**：`securityCheck()` 是纯函数，白名单 + 禁止规则双重校验；shell 元字符只放行自己生成的固定管线（如 `ps aux | head -20`）。
 - **每 chat 记忆**：`chatDir`（默认 `~/.dsh/chat-history/<渠道>/<chat_id>.json`），保留 `chatHistoryTurns` 轮。
 - 没有模型 key、没有命令、甚至 router 整个关掉：管线仍然完整（全部转交 agent）。
+
+## 24×7 与心跳接管（lease）
+
+同一层可以同时部署在**两个地方**：launchd/systemd 常驻的 headless 服务，和你在用的 TUI 会话。
+两个进程都连同一个机器人会**双投递**每条消息，所以渠道连接由**租约**仲裁：
+
+```
+~/.dsh/chat-interaction-lease-<渠道>.json
+{ owner, role: 'service' | 'interactive', pid, host, heartbeatAt, acquiredAt }
+```
+
+| 角色 | 谁 | 行为 |
+|---|---|---|
+| `service` | 配了 `channels.<渠道>.role: 'listener'` 的实例（launchd 常驻） | 只在租约空闲时获取；被抢占后**让位并持续等待**，对方离开后**自动重连** |
+| `interactive` | 交互式 TUI 会话（默认） | **抢占** service 持有者（人在键盘前优先）；对其它 interactive 实例则是先到先得 |
+
+- **心跳**：持有者每 `heartbeatMs`（默认 30s）续约，同时每 ≤2s 检查一次归属——被抢占后约 2s 内让位，不会长时间双投递。
+- **过期接管**：心跳超过 `ttlMs`（默认 90s）视为死进程，任何实例都可以接管（进程崩溃也能自愈）。
+- **请求被拒时的提示**：另一个实例正在服务该渠道时会返回明确错误（含持有者角色与心跳时间）。
+- **逃生阀**：`lease: { enabled: false }` 完全关闭仲裁（回到旧行为，两个实例都会连）。
+
+```yaml
+- id: chatInteraction
+  config:
+    lease:
+      enabled: true          # 默认 true
+      role: service          # 不配则按 channels.*.role 推断: 有 listener = service, 否则 interactive
+      ttlMs: 90000           # 心跳过期阈值
+      heartbeatMs: 30000     # 续约间隔（检查间隔上限 2s）
+      dir: ~/.dsh            # 租约文件目录
+```
+
+**launchd 部署示例**（headless profile）：
+
+```xml
+<!-- ~/Library/LaunchAgents/com.example.dsh-chat.plist -->
+<key>ProgramArguments</key>
+<array>
+  <string>/opt/homebrew/bin/dsh</string>
+  <string>--profile</string><string>headless</string>
+</array>
+<key>KeepAlive</key><true/>
+```
+headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连、角色=service），
+你的 TUI 会话用默认 `interactive`——打开 TUI 说「连接飞书」即接管，关掉 TUI 服务自动收回。
 
 ## v0.1.5-rc.1 兼容性
 
@@ -485,9 +532,18 @@ scoring: {
     maxAttempts: 10, baseDelayMs: 30_000, capDelayMs: 600_000, pollMs: 5_000,
   },
   scoring: { /* 见「消息打分与模型路由」一节 */ },
+  lease: {                             // 渠道租约（24×7 服务 ⇄ TUI 心跳接管）
+    enabled: true,
+    role: 'interactive',               // interactive | service (默认按 channels.*.role 推断)
+    ttlMs: 90_000,                     // 心跳过期阈值
+    heartbeatMs: 30_000,               // 续约间隔（检查间隔上限 2s）
+    dir: '~/.dsh',                     // 租约文件目录
+  },
   router: {                            // 插件自治（命令/确认/闲聊/任务连续性）
     enabled: true,
     evaluator: 'auto',                 // auto | rule | model
+    autoPermissionCard: true,          // 任务类消息自动发权限模式卡
+    autoDisambiguation: true,          // 无法分类且无模型时自动发消歧卡
     model: 'deepseek-v4-flash',        // 分类与闲聊用的模型
     autoReply: true,                   // 闲聊是否插件内直答
     chatHistoryTurns: 10,
@@ -541,7 +597,8 @@ src/
   types.ts            规范契约: InboundMessage / CardSpec / SendResult / ...
   channel.ts          ChannelAdapter 接口 + BaseChannel 基类（平台侧的一半）
   hub.ts              InteractionHub: 去重/spool/状态/waiter/回执/打分/followup/重试
-  router.ts           插件自治: 命令执行/确认解析/闲聊直答/任务连续性 + 安全层
+  router.ts           插件自治: 命令执行/确认解析/闲聊直答/任务连续性 + 自动发卡 + 安全层
+  lease.ts            渠道租约: 心跳接管（service ⇄ interactive 抢占/让位/自动重连）
   scoring.ts          消息打分: RuleScorer + ModelScorer + 档位→模型映射
   session-events.ts   会话事件适配: 0.1.5+ snapshotEvents() / 旧 events 数组
   retry.ts            模型失败重投守卫（指数退避 + 成功证据清零）
@@ -566,7 +623,7 @@ src/
 
 ```sh
 pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.5-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为可选 peer
-npm test          # build + 103 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
+npm test          # build + 130 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
 npm run build     # 产物在 dist/
 ```
 
@@ -574,6 +631,6 @@ npm run build     # 产物在 dist/
 
 ## Roadmap
 
-- 路由器自动发起权限模式卡 / 消歧卡（`PendingStore` 与 confirmation 闭环已就绪，缺"发起"侧）；
 - 钉钉适配器；
-- 24×7 headless：同一层在 launchd 服务与 TUI 会话间心跳接管。
+- 企微智能机器人的**流式回复**（`replyStream`：把 agent 的中间输出实时推到 IM，需要 hub 侧暴露"回合中间输出"接缝）；
+- 多实例共享一条渠道的**负载分担**（当前租约是独占语义，不做分片）。

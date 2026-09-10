@@ -51,6 +51,18 @@ export interface RouterConfig {
     commandMaxOutputChars?: number
     /** Answer casual messages in-plugin (default true when a key is present). */
     autoReply?: boolean
+    /**
+     * Post the permission-mode card (A 全自动 / B 需审批) when a task arrives
+     * and no question is open (default true). The answer is resolved in-plugin
+     * and written to <项目>/.dsh/<渠道>-permission-mode.txt.
+     */
+    autoPermissionCard?: boolean
+    /**
+     * Post the disambiguation card (1 新指令 / 2 闲聊忽略 / 3 其它) when a
+     * message cannot be classified and no model is available to answer it
+     * (default true).
+     */
+    autoDisambiguation?: boolean
     chatTimeoutMs?: number
     /** Per-chat conversation memory size (turns). */
     chatHistoryTurns?: number
@@ -74,6 +86,8 @@ export interface ResolvedRouterConfig {
     commandTimeoutMs: number
     commandMaxOutputChars: number
     autoReply: boolean
+    autoPermissionCard: boolean
+    autoDisambiguation: boolean
     chatTimeoutMs: number
     chatHistoryTurns: number
     chatDir: string
@@ -92,6 +106,8 @@ const ROUTER_DEFAULTS: Omit<ResolvedRouterConfig, 'cwdOf' | 'fetchImpl'> = {
     commandTimeoutMs: 30_000,
     commandMaxOutputChars: 2000,
     autoReply: true,
+    autoPermissionCard: true,
+    autoDisambiguation: true,
     chatTimeoutMs: 30_000,
     chatHistoryTurns: 10,
     chatDir: '~/.dsh/chat-history',
@@ -188,6 +204,99 @@ export function classifyByRules(msg: InboundMessage, hasPending: boolean): Class
         return { mode: 'bugfix', confidence: 0.8, reasoning: '报错上报', summary: text.slice(0, 80) }
     }
     return { mode: 'chat', confidence: 0.5, reasoning: '无明确意图', summary: text.slice(0, 80) }
+}
+
+// ---------------------------------------------------------------------------
+// pending-question resolution (confirmation闭环)
+// ---------------------------------------------------------------------------
+
+export interface PendingResolution {
+    /** The message answered the open question. */
+    resolved: boolean
+    /** Chosen option value (A / 1 / answer / ...). */
+    choice?: string | null
+    label?: string
+    /** The user cancelled the question. */
+    cancelled?: boolean
+    /** The message looks like a NEW instruction rather than an answer. */
+    ambiguous?: boolean
+    /** Free-form answer text (goes to the agent). */
+    freeform?: string
+}
+
+/**
+ * Decide what an inbound message means while a question is open.
+ * (Ported from the dsh-feishu router's category-0 matching rules.)
+ */
+export function resolvePending(
+    pending: { kind: string; options?: Array<{ value: string; label?: string }> },
+    text: string
+): PendingResolution {
+    const t = String(text || '').trim()
+    const opts = pending.options || []
+    for (const o of opts) {
+        if (t.toLowerCase() === String(o.value).toLowerCase() || (o.label && t === o.label)) {
+            return { resolved: true, choice: o.value, label: o.label || o.value }
+        }
+    }
+    if (/^(all|全部采纳推荐方案|全采纳)$/i.test(t)) {
+        const first = opts[0]
+        return first ? { resolved: true, choice: first.value, label: first.label } : { resolved: false, ambiguous: true }
+    }
+    const hits = opts.filter((o) => o.label && t.includes(o.label))
+    if (hits.length === 1) return { resolved: true, choice: hits[0].value, label: hits[0].label }
+    if (pending.kind === 'permission-mode') {
+        if (/^(全自动|auto)$/i.test(t)) return { resolved: true, choice: 'A', label: '全自动' }
+        if (/^(需审批|审批|manual)$/i.test(t)) return { resolved: true, choice: 'B', label: '需审批' }
+    }
+    if (/^(取消|cancel|撤回|算了)$/i.test(t)) return { resolved: true, cancelled: true }
+    // a new instruction that merely looks like an answer must not be swallowed
+    if (REQUIREMENT_KEYWORD_RE.test(t) || SAFE_PREFIX_RE.test(t) || EXPLICIT_CMD_RE.test(t) ||
+        /^请|^帮我?|^新|文档|docx|https?:\/\//.test(t)) {
+        return { resolved: false, ambiguous: true }
+    }
+    return { resolved: true, choice: null, freeform: t }
+}
+
+/** The permission-mode card posted when a task arrives (A 全自动 / B 需审批). */
+export function permissionModeCard(summary: string): {
+    title: string
+    body: string
+    buttons: Array<{ value: string; label: string; type: 'primary' | 'danger' }>
+} {
+    return {
+        title: '[需要确认] 权限模式',
+        body: [
+            '本次任务权限模式?',
+            'A 全自动: 后续权限请求自动放行',
+            'B 需审批: 每条敏感操作在 IM 里确认',
+            `(需求摘要: ${String(summary).slice(0, 120)})`,
+        ].join('\n'),
+        buttons: [
+            { value: 'A', label: '全自动', type: 'primary' },
+            { value: 'B', label: '需审批', type: 'danger' },
+        ],
+    }
+}
+
+/** The disambiguation card posted when a message cannot be classified. */
+export function disambiguationCard(text: string): {
+    title: string
+    body: string
+    buttons: Array<{ value: string; label: string; type?: 'primary' | 'default' }>
+} {
+    return {
+        title: '[消歧] 未识别消息',
+        body: [
+            `未识别消息: "${String(text).slice(0, 120)}"`,
+            '当作: 1) 新指令  2) 闲聊忽略  3) 其它',
+        ].join('\n'),
+        buttons: [
+            { value: '1', label: '新指令', type: 'primary' },
+            { value: '2', label: '闲聊忽略' },
+            { value: '3', label: '其它' },
+        ],
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -446,34 +555,128 @@ export function createRouter(deps: RouterDeps): MessageRouter {
         return { handled: true, followup: false, mode: 'command' }
     }
 
-    const handleConfirmation = async (msg: InboundMessage): Promise<RouterDecision> => {
+    /** Persist a permission-mode choice (and reset the allowlist, as dsh-feishu does). */
+    const writePermissionMode = (channel: string, mode: 'auto' | 'manual'): void => {
+        const proj = projStateDir(cwdOf())
+        writeFileSafe(path.join(proj, `${channel}-permission-mode.txt`), mode + '\n')
+        writeFileSafe(path.join(proj, `${channel}-permission-allowlist.txt`), '')
+    }
+
+    const readPermissionMode = (channel: string): string => {
+        const t = readFileSafe(path.join(projStateDir(cwdOf()), `${channel}-permission-mode.txt`)).trim()
+        return t === 'auto' || t === 'manual' ? t : ''
+    }
+
+    /** Send an interactive card through the hub (never throws). */
+    const sendCard = async (
+        msg: InboundMessage,
+        card: { title: string; body: string; buttons: Array<{ value: string; label?: string; type?: 'primary' | 'default' | 'danger' }> }
+    ): Promise<boolean> => {
+        try {
+            const r = await deps.hub.sendCard(msg.channel, msg.chatId, card)
+            return r.ok
+        } catch (e) {
+            log('error', 'router card send failed:', (e as Error).message)
+            return false
+        }
+    }
+
+    /**
+     * The confirmation闭环: resolve the open question, or decide that this
+     * message is actually a NEW instruction (never swallow it).
+     */
+    const handleConfirmation = async (msg: InboundMessage, allowCards: boolean): Promise<RouterDecision> => {
         const pending = deps.pendingStore.get(msg.channel, msg.chatId)
         if (!pending) {
             // short confirmation with no open question → let the agent interpret it
             return { handled: false, followup: true, mode: 'confirmation' }
         }
-        const text = String(msg.text || '').trim()
-        const isModeCard = pending.kind === 'permission-mode'
-        const letterOrWord = OPTION_LETTER_RE.test(text) || CONFIRM_WORDS_RE.test(text)
-        if (!letterOrWord) {
-            // not an answer: keep the question open, hand the message to the agent
-            return { handled: false, followup: true, mode: 'confirmation' }
+        const r = resolvePending(pending, String(msg.text || ''))
+        if (r.ambiguous) {
+            // keep the question open; the agent handles the new instruction
+            return {
+                handled: false,
+                followup: true,
+                mode: 'confirmation',
+                followupNote: `插件有一个未回答的问题（${pending.kind}），本条消息看起来是新指令，先按新指令处理（问题保持打开）。`,
+            }
         }
-        deps.pendingStore.clear(msg.channel, msg.chatId)
-        if (isModeCard) {
-            const mode = /^(全自动|auto|all|全采纳)/i.test(text) ? 'auto' : 'manual'
-            const modeFile = path.join(projStateDir(cwdOf()), `${msg.channel}-permission-mode.txt`)
-            writeFileSafe(modeFile, mode + '\n')
-            await replyReceipt(msg, `已切换权限模式: ${mode === 'auto' ? '全自动' : '需审批'}（后续敏感操作按该模式处理）`)
+        if (r.cancelled) {
+            deps.pendingStore.clear(msg.channel, msg.chatId)
+            await replyReceipt(msg, '已取消该确认。')
             return { handled: true, followup: false, mode: 'confirmation' }
         }
-        await replyReceipt(msg, `已记录你的选择: ${text}`)
-        return { handled: true, followup: false, mode: 'confirmation' }
+
+        if (pending.kind === 'permission-mode') {
+            const label = r.label || String(r.choice || msg.text || '')
+            const mode: 'auto' | 'manual' = r.choice === 'A' || /全自动|auto/i.test(label) ? 'auto' : 'manual'
+            deps.pendingStore.clear(msg.channel, msg.chatId)
+            writePermissionMode(msg.channel, mode)
+            await replyReceipt(msg, `已切换权限模式: ${mode === 'auto' ? '全自动' : '需审批'}（后续敏感操作按该模式处理）`)
+            return {
+                handled: true,
+                followup: true,
+                mode: 'confirmation',
+                followupNote: `权限模式已选择: ${mode === 'auto' ? '全自动' : '需审批'}（已写入 <项目>/.dsh/${msg.channel}-permission-mode.txt）; 现在按需求流程继续推进。`,
+            }
+        }
+
+        if (pending.kind === 'disambiguation') {
+            const original = pending.originalText || ''
+            deps.pendingStore.clear(msg.channel, msg.chatId)
+            if (r.choice === '2') {
+                await replyReceipt(msg, '好的，已忽略这条消息。')
+                return { handled: true, followup: false, mode: 'chat' }
+            }
+            if (r.choice === '1' && original) {
+                await replyReceipt(msg, '收到，按新指令处理。')
+                // replay the original message through a fresh classification;
+                // when it wakes the agent, the AGENT must see the original text
+                const replay: InboundMessage = { ...msg, text: original, isCardAction: true }
+                const decision = await routeOnce(replay, { allowCards: false })
+                return decision.followup
+                    ? { ...decision, followupText: original }
+                    : decision
+            }
+            return {
+                handled: false,
+                followup: true,
+                mode: 'chat',
+                followupNote: `用户对未识别消息的澄清: ${String(msg.text || '').slice(0, 120)}`,
+            }
+        }
+
+        // any other pending kind: a free-form answer goes to the agent
+        deps.pendingStore.clear(msg.channel, msg.chatId)
+        return {
+            handled: false,
+            followup: true,
+            mode: 'confirmation',
+            followupNote: `用户回答了插件的问题（${pending.kind}）: ${String(msg.text || '').slice(0, 120)}`,
+        }
     }
 
-    const handleChat = async (msg: InboundMessage): Promise<RouterDecision> => {
+    const handleChat = async (msg: InboundMessage, allowCards: boolean): Promise<RouterDecision> => {
         if (!cfg.autoReply || !modelReady()) {
-            // no model: the main agent answers (it still owns the conversation)
+            if (allowCards && cfg.autoDisambiguation && !deps.pendingStore.has(msg.channel, msg.chatId)) {
+                // no model to answer casually → ask the human what this was
+                const card = disambiguationCard(String(msg.text || ''))
+                const sent = await sendCard(msg, card)
+                if (sent) {
+                    deps.pendingStore.set(msg.channel, msg.chatId, {
+                        kind: 'disambiguation',
+                        question: '未识别消息当作什么处理?',
+                        options: [
+                            { value: '1', label: '新指令' },
+                            { value: '2', label: '闲聊忽略' },
+                            { value: '3', label: '其它' },
+                        ],
+                        originalText: String(msg.text || ''),
+                    })
+                    return { handled: true, followup: false, mode: 'chat' }
+                }
+            }
+            // no model (or card failed): the main agent answers
             return { handled: false, followup: true, mode: 'chat' }
         }
         const history = loadHistory(msg.channel, msg.chatId)
@@ -486,10 +689,77 @@ export function createRouter(deps: RouterDeps): MessageRouter {
     }
 
     /** The hub router: returns what the plugin handled vs what wakes the agent. */
+    /**
+     * Post the permission-mode card for a task, once (no open question), and
+     * remember it as pending so the click resolves in-plugin.
+     */
+    const openPermissionModeQuestion = async (msg: InboundMessage, summary: string): Promise<boolean> => {
+        if (!cfg.autoPermissionCard) return false
+        if (deps.pendingStore.has(msg.channel, msg.chatId)) return false
+        const card = permissionModeCard(summary)
+        const sent = await sendCard(msg, card)
+        if (!sent) return false
+        deps.pendingStore.set(msg.channel, msg.chatId, {
+            kind: 'permission-mode',
+            question: '选择本次任务权限模式',
+            options: [
+                { value: 'A', label: '全自动' },
+                { value: 'B', label: '需审批' },
+            ],
+            summary: summary.slice(0, 200),
+        })
+        await replyReceipt(msg, [
+            '[收到] 需求已接收',
+            `权限模式: 等待选择 (A 全自动 / B 需审批)${readPermissionMode(msg.channel) ? ` · 上次选择: ${readPermissionMode(msg.channel)}` : ''}`,
+            '计划: 分析需求 → 出方案 → 确认后实施',
+            `需求摘要: ${summary.slice(0, 150)}`,
+        ].join('\n'))
+        return true
+    }
+
+    /** Classify + dispatch one message (used for the top-level flow and replays). */
+    const routeOnce = async (msg: InboundMessage, opts: { allowCards: boolean }): Promise<RouterDecision> => {
+        const hasPending = deps.pendingStore.has(msg.channel, msg.chatId)
+        if (hasPending) {
+            // an open question owns this chat: resolve it (or spot a new instruction)
+            return await handleConfirmation(msg, opts.allowCards)
+        }
+        const { c, evaluator } = await evaluate(msg, false)
+        log('info', `router: ${c.mode} (${evaluator}, conf=${c.confidence}) ${c.reasoning}`)
+
+        switch (c.mode) {
+            case 'confirmation':
+                return await handleConfirmation(msg, opts.allowCards)
+            case 'command':
+                return await handleCommand(msg, c.commands && c.commands.length ? c.commands : [])
+            case 'requirement':
+            case 'bugfix': {
+                const summary = c.summary || String(msg.text || '').slice(0, 120)
+                const asked = await openPermissionModeQuestion(msg, summary)
+                return {
+                    handled: false,
+                    followup: true,
+                    mode: c.mode,
+                    followupNote: [
+                        c.mode === 'requirement' ? `需求摘要: ${summary}` : `问题摘要: ${summary}`,
+                        asked
+                            ? '权限模式卡片与[收到]回执已由插件发出; 等待用户点击 A/B, 点击会作为下一条卡片消息到达。' +
+                              '收到前不要重复询问权限模式, 可先做需求探索/分析准备。'
+                            : undefined,
+                    ].filter(Boolean).join(' | '),
+                }
+            }
+            case 'task':
+                return { handled: false, followup: true, mode: 'task' }
+            default:
+                return await handleChat(msg, opts.allowCards)
+        }
+    }
+
     const router: MessageRouter = async (msg: InboundMessage): Promise<RouterDecision> => {
         if (!cfg.enabled) return { handled: false, followup: true, mode: 'followup' }
         try {
-            // 1) an active task owns this chat — never intercept mid-task
+            // an active task owns this chat — never intercept mid-task
             if (taskActive(msg)) {
                 return {
                     handled: false,
@@ -498,35 +768,7 @@ export function createRouter(deps: RouterDeps): MessageRouter {
                     followupNote: '该会话存在进行中的任务（task-active 标记），本条消息直接转交主 agent 处理。',
                 }
             }
-
-            const hasPending = deps.pendingStore.has(msg.channel, msg.chatId)
-            const { c, evaluator } = await evaluate(msg, hasPending)
-            log('info', `router: ${c.mode} (${evaluator}, conf=${c.confidence}) ${c.reasoning}`)
-
-            switch (c.mode) {
-                case 'confirmation':
-                    return await handleConfirmation(msg)
-                case 'command':
-                    return await handleCommand(msg, c.commands && c.commands.length ? c.commands : [])
-                case 'requirement':
-                    return {
-                        handled: false,
-                        followup: true,
-                        mode: 'requirement',
-                        followupNote: c.summary ? `需求摘要: ${c.summary}` : undefined,
-                    }
-                case 'bugfix':
-                    return {
-                        handled: false,
-                        followup: true,
-                        mode: 'bugfix',
-                        followupNote: c.summary ? `问题摘要: ${c.summary}` : undefined,
-                    }
-                case 'task':
-                    return { handled: false, followup: true, mode: 'task' }
-                default:
-                    return await handleChat(msg)
-            }
+            return await routeOnce(msg, { allowCards: true })
         } catch (e) {
             log('error', 'router failed; forwarding to agent:', (e as Error).message)
             return { handled: false, followup: true, mode: 'fallback' }

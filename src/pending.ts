@@ -12,10 +12,22 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+export interface PendingOption {
+    /** Value returned when the user picks this option (A / 1 / answer / ...). */
+    value: string
+    label?: string
+}
+
 export interface PendingEntry {
     kind: string
     question: string
     createdAt: number
+    /** Choices offered by the card that opened this question. */
+    options?: PendingOption[]
+    /** The message text that opened the question (disambiguation replay). */
+    originalText?: string
+    /** Short summary shown on receipts (permission-mode cards). */
+    summary?: string
 }
 
 export interface PendingStoreOptions {

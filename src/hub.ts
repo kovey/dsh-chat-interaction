@@ -45,6 +45,12 @@ export interface RouterDecision {
     mode?: string
     /** Extra context appended to the agent turn. */
     followupNote?: string
+    /**
+     * Replace the text of the agent turn (e.g. a disambiguation replay: the
+     * user clicked "1 新指令" on message X — the agent must see X, not "1").
+     * The spool already holds the original inbound text.
+     */
+    followupText?: string
 }
 
 export type MessageRouter = (msg: InboundMessage) => RouterDecision | Promise<RouterDecision>
@@ -342,6 +348,11 @@ export class InteractionHub {
 
         // 6.5) score the message → execution model routing
         const score = await this.scoreMessage(msg)
+
+        // 6.9) a replay may hand the agent different text than the click value
+        if (decision.followup && typeof decision.followupText === 'string') {
+            msg.text = decision.followupText
+        }
 
         // 7) wake the agent
         this.wakeAgent(msg, { note: decision.followupNote, score: score ?? undefined })

@@ -66,6 +66,10 @@ export {
 } from './approval.js'
 export type { AnswerDecision, ApprovalDeps, ApprovalHarness, GateInput, GateOutput, PreExecutePayload } from './approval.js'
 
+// channel lease (heartbeat takeover between service and TUI)
+export { ChannelLease } from './lease.js'
+export type { AcquireResult, InstanceRole, LeaseOptions, LeaseState } from './lease.js'
+
 // pending Q&A store
 export { PendingStore } from './pending.js'
 export type { PendingEntry, PendingStoreOptions } from './pending.js'
@@ -88,8 +92,25 @@ export {
 export type { ModelScorerOptions, ResolvedScoringConfig, Scorer, ScoringConfig } from './scoring.js'
 
 // plugin autonomy router (commands / confirmations / casual chat)
-export { classifyByRules, createRouter, resolveRouterConfig, runCommand, securityCheck } from './router.js'
-export type { Classification, CommandResult, ResolvedRouterConfig, RouterConfig, RouterDeps, SecurityVerdict } from './router.js'
+export {
+    classifyByRules,
+    createRouter,
+    disambiguationCard,
+    permissionModeCard,
+    resolvePending,
+    resolveRouterConfig,
+    runCommand,
+    securityCheck,
+} from './router.js'
+export type {
+    Classification,
+    CommandResult,
+    PendingResolution,
+    ResolvedRouterConfig,
+    RouterConfig,
+    RouterDeps,
+    SecurityVerdict,
+} from './router.js'
 
 // per-channel tools + prompt
 export { buildChannelTools } from './tools.js'
