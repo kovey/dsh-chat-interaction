@@ -120,7 +120,9 @@ link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，�
         callback: { port: 8787, path: '/wecom' }
     scoring:
       evaluator: auto            # auto | rule | model
-      models: { low: 'deepseek-chat', high: 'deepseek-reasoner' }
+      # 模型 id 必须是 provider 目录里声明过的（见 ~/.dsh/settings.yaml 的
+      # llm-* → models 列表；本机为 v4 系列）。配错会被守卫丢弃并回退默认模型。
+      models: { low: 'deepseek-v4-flash', high: 'deepseek-v4-pro' }
     router:
       evaluator: auto            # 命令/确认/闲聊自治；rule = 不花模型调用
 ```
@@ -286,7 +288,7 @@ agent（不被命令/闲聊路由截走）；任务收尾时按提示词策略�
 （A 提交+推送+部署 / B 提交并推送 / C 仅本地提交 / D 暂不提交）。
 
 **打分与模型路由**：每条转交 agent 的消息会先打分，回合里能看到
-`消息评分: 0.90 (high) → 执行模型: deepseek-reasoner`；覆盖只作用于该回合，
+`消息评分: 0.90 (high) → 执行模型: deepseek-v4-pro`；覆盖只作用于该回合，
 回合结束自动恢复会话默认模型。关闭：`scoring: { enabled: false }`。
 
 ### 5. 验证与排障
@@ -307,6 +309,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 | 插件"没反应" | 这是预期：**默认不连接**。要么明确让 agent 连接，要么把 config 里 `role` 设为 `listener`（部署决策） |
 | 命令没被执行 | 命中 router 安全层（如 `git push`）→ 已转交 agent 走审批；日志有 `安全层未直接执行` |
 | 打分/闲聊没有模型参与 | 未配置 `DEEPSEEK_API_KEY`/`BASE_URL` → 自动回落纯规则（功能不受影响） |
+| 日志出现 `model routing: ignoring override — model "xxx" is not in ...` | 配置里的模型 id 不存在：按提示的 available 列表改成真实 id（或用 `dsh` 的 /model 查看目录） |
 
 ### 6. 本地自检（排查挂载问题）
 
@@ -435,11 +438,11 @@ class DingChannel extends BaseChannel {
 每条要交给 agent 的入站消息都会**先被打分（复杂度 0-1）**，分数经阈值映射到档位（low / medium / high），档位再映射到**执行模型**——低复杂度（卡片点击、`git status` 这类只读查询）走便宜模型，报错排查 / 需求开发走最强模型。
 
 ```
-入站消息 → 去重 → 路由 → 即时回执 → 打分 ─┬─ low    → deepseek-chat
+入站消息 → 去重 → 路由 → 即时回执 → 打分 ─┬─ low    → deepseek-v4-flash
                                          ├─ medium → (配置或会话默认)
-                                         └─ high   → deepseek-reasoner
+                                         └─ high   → deepseek-v4-pro
                                          打分结果随回合标注:
-                                         「消息评分: 0.90 (high) → 执行模型: deepseek-reasoner」
+                                         「消息评分: 0.90 (high) → 执行模型: deepseek-v4-pro」
 ```
 
 - **两个打分器，自动降级**：`ModelScorer`（LLM 评估，沿用飞书插件路由的 evaluateWithModel 模式，JSON 输出）失败/未配置时回落到 `RuleScorer`（确定性启发式：代码堆栈、报错关键词、需求关键词、文档链接、紧急度、消息长度……），打分器抛错**绝不阻断消息投递**（未打分照常唤醒 agent）。
@@ -531,19 +534,28 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 scoring: {
   enabled: true,
   evaluator: 'auto',            // 'rule' | 'model' | 'auto'(模型优先, 规则兜底)
-  model: 'deepseek-v4-flash',   // 打分用的评估模型
+  model: 'deepseek-v4-flash',   // 打分用的评估模型（须在 provider 目录中声明）
   baseURL: '', apiKey: '',      // 留空走 DEEPSEEK_BASE_URL / OPENAI_BASE_URL 环境变量
   thresholds: { medium: 0.4, high: 0.75 },
   models: {                     // 各档位执行模型; 未配置的档位用会话默认
-    low: 'deepseek-chat',
-    high: 'deepseek-reasoner',
+    low: 'deepseek-v4-flash',   // ← 必须是真实存在的模型 id
+    high: 'deepseek-v4-pro',
   },
-  providers: { high: 'deepseek' },
-  reasoningEfforts: { high: 'high' },
+  providers: { high: 'deepseek-official' },   // 与宿主 agent-default-model.provider 一致
+  reasoningEfforts: { high: 'high' },         // 合法值: off | low | high | max
   annotateTurn: true,           // 回合内标注评分与模型
   restoreOnTurnEnd: true,       // 回合结束恢复默认模型
 }
 ```
+
+> **模型 id 从哪来**：宿主用它声明的目录解析模型（`~/.dsh/settings.yaml` 的
+> `llm-*: models: - id:` 列表，或适配器内置目录；例如 DeepSeek 官方适配器目前是
+> `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`）。
+> 本层会读取该目录做**守卫**：
+> - 打分档位配了不存在的模型 → 丢弃该覆盖（回合用宿主默认模型），日志 warn 一次
+> - 评估/分类模型不存在 → 直接走规则路径，不做无效模型调用
+> - reasoning effort 非 `off|low|high|max` → 丢弃该字段
+> 也就是说：**配置写错只会降级，不会把回合打挂**。
 
 ## 完整配置（apply / cordis.patch.yml 的 config）
 
@@ -648,7 +660,7 @@ src/
 
 ```sh
 pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.5-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为可选 peer
-npm test          # build + 130 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
+npm test          # build + 148 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
 npm run build     # 产物在 dist/
 ```
 

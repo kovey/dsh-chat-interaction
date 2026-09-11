@@ -25,6 +25,7 @@ import path from 'node:path';
 import { exec } from 'node:child_process';
 import { log as defaultLog } from './log.js';
 import { expandHome, projStateDir, readFileSafe, writeFileSafe } from './state.js';
+import { isModelAvailable, readModelCatalog, warnOnce } from './model-catalog.js';
 const ROUTER_DEFAULTS = {
     enabled: true,
     evaluator: 'auto',
@@ -277,7 +278,16 @@ export function createRouter(deps) {
     const modelReady = () => {
         const base = cfg.baseURL || process.env.DEEPSEEK_BASE_URL || process.env.OPENAI_BASE_URL || '';
         const key = cfg.apiKey || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '';
-        return !!(base && key);
+        if (!base || !key)
+            return false;
+        // A model id the provider does not declare would fail on every call.
+        const catalog = readModelCatalog();
+        if (!isModelAvailable(catalog, cfg.model)) {
+            warnOnce(`router: model "${cfg.model}" is not declared in ${catalog.source} ` +
+                `(available: ${catalog.models.join(', ')}) — classification/chat falls back to rules`, log);
+            return false;
+        }
+        return true;
     };
     const chatHistoryPath = (channel, chatId) => path.join(expandHome(cfg.chatDir), channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
     const loadHistory = (channel, chatId) => {

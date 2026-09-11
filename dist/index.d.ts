@@ -38,6 +38,8 @@ export { PendingStore } from './pending.js';
 export type { PendingEntry, PendingStoreOptions } from './pending.js';
 export { hasSessionEvents, readSessionEvents } from './session-events.js';
 export type { SessionEventLike, SessionEventsSource } from './session-events.js';
+export { ALLOWED_REASONING_EFFORTS, clearModelCatalogCache, clearModelWarnings, isModelAvailable, parseSettingsCatalog, readModelCatalog, reportDropped, sanitizeModelOverride, warnOnce, } from './model-catalog.js';
+export type { ModelCatalog, ReadCatalogOptions, SanitizeInput, SanitizeResult } from './model-catalog.js';
 export { CompositeScorer, ModelScorer, RuleScorer, applyScoreConfig, createScorer, levelOf, normalizeScore, resolveScoringConfig, } from './scoring.js';
 export type { ModelScorerOptions, ResolvedScoringConfig, Scorer, ScoringConfig } from './scoring.js';
 export { classifyByRules, createRouter, disambiguationCard, permissionModeCard, resolvePending, resolveRouterConfig, runCommand, securityCheck, } from './router.js';

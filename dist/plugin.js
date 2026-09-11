@@ -23,6 +23,7 @@ import { descriptorOf } from './channel.js';
 import { PendingStore } from './pending.js';
 import { askViaChannel, setupAuthorization } from './approval.js';
 import { applyScoreConfig, createScorer, resolveScoringConfig } from './scoring.js';
+import { readModelCatalog, reportDropped, sanitizeModelOverride } from './model-catalog.js';
 import { createRouter, resolveRouterConfig } from './router.js';
 import { createFeishuChannel } from './adapters/feishu.js';
 import { createWeComChannel } from './adapters/wecom.js';
@@ -184,10 +185,22 @@ function applyInner(ctx, config, artifacts) {
             const adapter = adapters.get(msg.channel);
             if (!adapter)
                 return false;
-            // Level → execution model mapping (fills score.model/provider/...).
-            const score = followup && followup.score
+            // Level → execution model mapping (fills score.model/provider/...),
+            // then guarded by the provider's declared catalog so a typo can
+            // never point the scored turn at a non-existent model.
+            let score = followup && followup.score
                 ? applyScoreConfig(scoring, followup.score)
                 : undefined;
+            if (score && (score.model || score.reasoningEffort)) {
+                const { applied, dropped } = sanitizeModelOverride(readModelCatalog(), {
+                    model: score.model,
+                    provider: score.provider,
+                    reasoningEffort: score.reasoningEffort,
+                });
+                if (dropped.length)
+                    reportDropped(dropped, config.log || log);
+                score = { ...score, ...applied };
+            }
             const ok = bridge.followup(descriptorOf(adapter), msg, {
                 note: followup && followup.note,
                 score,

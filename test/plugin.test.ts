@@ -274,8 +274,10 @@ test('scoring: high-complexity messages route to the configured model and the tu
         scoring: {
             evaluator: 'rule',
             restoreOnTurnEnd: false,
-            models: { high: 'deepseek-reasoner', low: 'deepseek-chat' },
-            providers: { high: 'deepseek' },
+            // 必须使用 provider 目录里真实存在的模型（本机 settings.yaml 声明
+            // 的是 v4 系列）；配错的模型会被 model-catalog 守卫丢弃。
+            models: { high: 'deepseek-v4-pro', low: 'deepseek-v4-flash' },
+            providers: { high: 'deepseek-official' },
         },
         channels: { feishu: { appId: 'x', appSecret: 'y' } },
     } as never) as DshChatLayer
@@ -291,7 +293,7 @@ test('scoring: high-complexity messages route to the configured model and the tu
     } as InboundMessage)
 
     const turn = ctx.followups[0]
-    assert.match(turn, /消息评分: 0\.90 \(high\) → 执行模型: deepseek-reasoner/)
+    assert.match(turn, /消息评分: 0\.90 \(high\) → 执行模型: deepseek-v4-pro/)
     assert.match(turn, /评分依据: 代码\/堆栈片段/)
 
     // the scored-turn override is applied through the OFFICIAL seam:
@@ -301,8 +303,8 @@ test('scoring: high-complexity messages route to the configured model and the tu
         .bind(ctx.agentCtx)
     await waterfall('system-prompt/assemble', {}, {}, async () => ({ variables: {} }))
     const resolved = await waterfall('agent/request', {}, async () => ({ model: 'default-model', reasoningEffort: 'low' }))
-    assert.equal((resolved as Record<string, unknown>).model, 'deepseek-reasoner')
-    assert.equal((resolved as Record<string, unknown>).provider, 'deepseek')
+    assert.equal((resolved as Record<string, unknown>).model, 'deepseek-v4-pro')
+    assert.equal((resolved as Record<string, unknown>).provider, 'deepseek-official')
     assert.equal((resolved as Record<string, unknown>).reasoningEffort, undefined, 'inherited effort cleared')
 
     // low-complexity message uses its own tier
@@ -314,7 +316,7 @@ test('scoring: high-complexity messages route to the configured model and the tu
         messageType: 'text',
         text: 'git status',
     } as InboundMessage)
-    assert.match(ctx.followups[1], /执行模型: deepseek-chat/)
+    assert.match(ctx.followups[1], /执行模型: deepseek-v4-flash/)
 
     layer.teardown()
 })

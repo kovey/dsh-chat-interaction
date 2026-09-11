@@ -78,6 +78,20 @@ export type { PendingEntry, PendingStoreOptions } from './pending.js'
 export { hasSessionEvents, readSessionEvents } from './session-events.js'
 export type { SessionEventLike, SessionEventsSource } from './session-events.js'
 
+// model catalog guard (never route to a non-existent model)
+export {
+    ALLOWED_REASONING_EFFORTS,
+    clearModelCatalogCache,
+    clearModelWarnings,
+    isModelAvailable,
+    parseSettingsCatalog,
+    readModelCatalog,
+    reportDropped,
+    sanitizeModelOverride,
+    warnOnce,
+} from './model-catalog.js'
+export type { ModelCatalog, ReadCatalogOptions, SanitizeInput, SanitizeResult } from './model-catalog.js'
+
 // message scoring → model routing
 export {
     CompositeScorer,

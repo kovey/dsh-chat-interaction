@@ -37,6 +37,8 @@ export { ChannelLease } from './lease.js';
 export { PendingStore } from './pending.js';
 // session-event access adapter (dsh 0.1.5+ snapshotEvents / legacy events)
 export { hasSessionEvents, readSessionEvents } from './session-events.js';
+// model catalog guard (never route to a non-existent model)
+export { ALLOWED_REASONING_EFFORTS, clearModelCatalogCache, clearModelWarnings, isModelAvailable, parseSettingsCatalog, readModelCatalog, reportDropped, sanitizeModelOverride, warnOnce, } from './model-catalog.js';
 // message scoring → model routing
 export { CompositeScorer, ModelScorer, RuleScorer, applyScoreConfig, createScorer, levelOf, normalizeScore, resolveScoringConfig, } from './scoring.js';
 // plugin autonomy router (commands / confirmations / casual chat)

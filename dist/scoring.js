@@ -1,4 +1,5 @@
 import { log as defaultLog } from './log.js';
+import { isModelAvailable, readModelCatalog, warnOnce } from './model-catalog.js';
 const SCORING_DEFAULTS = {
     enabled: true,
     evaluator: 'auto',
@@ -121,7 +122,17 @@ export class ModelScorer {
     get ready() {
         const baseURL = this.cfg.baseURL || process.env.DEEPSEEK_BASE_URL || process.env.OPENAI_BASE_URL || '';
         const apiKey = this.cfg.apiKey || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '';
-        return !!(baseURL && apiKey);
+        if (!baseURL || !apiKey)
+            return false;
+        // Never call a model the provider does not declare: the call would fail
+        // on every message; rule scoring is the correct fallback instead.
+        const catalog = readModelCatalog();
+        if (!isModelAvailable(catalog, this.cfg.model)) {
+            warnOnce(`scoring: evaluation model "${this.cfg.model}" is not declared in ${catalog.source} ` +
+                `(available: ${catalog.models.join(', ')}) — using rule scoring instead`, this.log);
+            return false;
+        }
+        return true;
     }
     async score(msg) {
         if (!this.ready)
