@@ -22,15 +22,51 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import * as cordisRuntime from '@deepseek-ai/cordis';
 import { dshHome } from './state.js';
 import { log as defaultLog } from './log.js';
 import { ModelSelectionManager } from './model-selection.js';
 import { readSessionEvents } from './session-events.js';
 import { formatInbound } from './prompt.js';
-/** True when the value already implements the flat HarnessContext contract. */
+/**
+ * The cordis `Context` class, used only for its brand check (`Context.is`).
+ * Guarded so a missing/odd cordis build cannot break module load.
+ */
+const ContextRef = (() => {
+    try {
+        const mod = cordisRuntime;
+        return (mod && mod.Context) || {};
+    }
+    catch {
+        return {};
+    }
+})();
+/**
+ * True when the value already implements the flat HarnessContext contract
+ * (tests / custom hosts). CORDIS contexts answer false *without* being probed
+ * for flat members: a host context is a proxy whose unknown-property access
+ * may throw (scope/trace interceptors), so probing `ctx.roots` on it is not
+ * safe. `Context.is()` uses a global-symbol brand and never triggers a get.
+ *
+ * Every access below is additionally guarded, because an exotic context
+ * implementation must never take the host process down.
+ */
 export function isHarnessContext(ctx) {
-    return !!ctx && typeof ctx.roots === 'function' &&
-        typeof ctx.registerTool === 'function';
+    if (!ctx || typeof ctx !== 'object')
+        return false;
+    try {
+        if (typeof ContextRef.is === 'function' && ContextRef.is(ctx)) {
+            return false; // real cordis context → adapt instead
+        }
+    }
+    catch { /* fall through to structural probing */ }
+    try {
+        const c = ctx;
+        return typeof c.roots === 'function' && typeof c.registerTool === 'function';
+    }
+    catch {
+        return false;
+    }
 }
 /**
  * Adapt a REAL cordis context (as handed to a plugin's `apply`) into the flat
@@ -47,36 +83,44 @@ export function isHarnessContext(ctx) {
  * no-op for that surface instead of throwing during plugin startup.
  */
 export function harnessFromCordis(ctx) {
+    // Every host-service access is individually guarded: a host context with
+    // exotic interceptors degrades to a no-op surface instead of throwing
+    // during plugin startup (a plugin must never break the session).
+    const safely = (fn, fallback) => {
+        try {
+            return fn();
+        }
+        catch {
+            return fallback;
+        }
+    };
     return {
-        roots: () => {
-            try {
-                const roots = ctx?.agents?.roots?.();
-                return Array.isArray(roots) ? roots : [];
-            }
-            catch {
-                return [];
-            }
-        },
+        roots: () => safely(() => {
+            const roots = ctx?.agents?.roots?.();
+            return Array.isArray(roots) ? roots : [];
+        }, []),
         registerTool: (tool) => {
-            ctx?.tools?.register?.(tool);
+            safely(() => ctx?.tools?.register?.(tool), undefined);
         },
         promptSection: (spec) => {
-            ctx?.systemPrompt?.section?.(spec);
+            safely(() => ctx?.systemPrompt?.section?.(spec), undefined);
         },
         onDispose: (cleanup) => {
-            if (typeof ctx?.effect === 'function') {
-                ctx.effect(() => cleanup, 'dsh-chat-interaction teardown');
-                return;
-            }
-            // cordis v3 fallback / plain-object test contexts.
-            if (typeof ctx?.on === 'function')
-                ctx.on('dispose', cleanup);
+            safely(() => {
+                if (typeof ctx?.effect === 'function') {
+                    ctx.effect(() => cleanup, 'dsh-chat-interaction teardown');
+                    return;
+                }
+                // cordis v3 fallback / plain-object test contexts.
+                if (typeof ctx?.on === 'function')
+                    ctx.on('dispose', cleanup);
+            }, undefined);
         },
         on: (event, listener) => {
-            ctx?.on?.(event, listener);
+            safely(() => ctx?.on?.(event, listener), undefined);
         },
         provide: (key, value, override) => {
-            ctx?.provide?.(key, value, override);
+            safely(() => ctx?.provide?.(key, value, override), undefined);
         },
     };
 }

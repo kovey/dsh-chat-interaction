@@ -23,6 +23,7 @@ import path from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
+import * as cordisRuntime from '@deepseek-ai/cordis'
 import { dshHome } from './state.js'
 import { log as defaultLog } from './log.js'
 import type { LogFn } from './log.js'
@@ -34,6 +35,19 @@ import type { FollowupContext, InboundMessage } from './types.js'
 import { formatInbound } from './prompt.js'
 import type { ChannelDescriptor } from './types.js'
 import type { ToolSpec } from './tools.js'
+
+/**
+ * The cordis `Context` class, used only for its brand check (`Context.is`).
+ * Guarded so a missing/odd cordis build cannot break module load.
+ */
+const ContextRef: { is?: (v: unknown) => boolean } = (() => {
+    try {
+        const mod = cordisRuntime as unknown as { Context?: { is?: (v: unknown) => boolean } }
+        return (mod && mod.Context) || {}
+    } catch {
+        return {}
+    }
+})()
 
 // ---------------------------------------------------------------------------
 // structural harness surface (the slice of the real ctx / Agent we use)
@@ -78,23 +92,47 @@ export interface HarnessContext {
     provide?(key: string, value: unknown, override?: boolean): void
 }
 
-/** True when the value already implements the flat HarnessContext contract. */
+/**
+ * True when the value already implements the flat HarnessContext contract
+ * (tests / custom hosts). CORDIS contexts answer false *without* being probed
+ * for flat members: a host context is a proxy whose unknown-property access
+ * may throw (scope/trace interceptors), so probing `ctx.roots` on it is not
+ * safe. `Context.is()` uses a global-symbol brand and never triggers a get.
+ *
+ * Every access below is additionally guarded, because an exotic context
+ * implementation must never take the host process down.
+ */
 export function isHarnessContext(ctx: unknown): ctx is HarnessContext {
-    return !!ctx && typeof (ctx as HarnessContext).roots === 'function' &&
-        typeof (ctx as HarnessContext).registerTool === 'function'
+    if (!ctx || typeof ctx !== 'object') return false
+    try {
+        if (typeof ContextRef.is === 'function' && ContextRef.is(ctx)) {
+            return false // real cordis context → adapt instead
+        }
+    } catch { /* fall through to structural probing */ }
+    try {
+        const c = ctx as HarnessContext
+        return typeof c.roots === 'function' && typeof c.registerTool === 'function'
+    } catch {
+        return false
+    }
 }
 
-/** Structural slice of a real cordis context (its host services). */
+/**
+ * Structural slice of a real cordis context (its host services). Member
+ * signatures are intentionally loose: a real `Context` uses generic overloads
+ * (`on<K extends keyof Events>`) that would not satisfy a stricter shape, and
+ * hosts call `apply()` from plain JS anyway.
+ */
 export interface CordisContextLike {
-    agents?: { roots?: () => unknown }
-    tools?: { register?: (tool: unknown) => unknown }
-    systemPrompt?: { section?: (spec: { name: string; order?: number; text: string }) => unknown }
+    agents?: { roots?: (...args: any[]) => any }
+    tools?: { register?: (...args: any[]) => any }
+    systemPrompt?: { section?: (...args: any[]) => any }
     /** cordis v4 fiber teardown. */
-    effect?: (execute: () => unknown, label?: string) => unknown
+    effect?: (...args: any[]) => any
     /** Event bus (waterfall listeners). */
-    on?: (event: string, listener: (...args: any[]) => unknown) => unknown
+    on?: (...args: any[]) => any
     /** Service export. */
-    provide?: (key: string, value: unknown, override?: boolean) => unknown
+    provide?: (...args: any[]) => any
 }
 
 /**
@@ -112,34 +150,42 @@ export interface CordisContextLike {
  * no-op for that surface instead of throwing during plugin startup.
  */
 export function harnessFromCordis(ctx: CordisContextLike | null | undefined): HarnessContext {
+    // Every host-service access is individually guarded: a host context with
+    // exotic interceptors degrades to a no-op surface instead of throwing
+    // during plugin startup (a plugin must never break the session).
+    const safely = <T>(fn: () => T, fallback: T): T => {
+        try {
+            return fn()
+        } catch {
+            return fallback
+        }
+    }
     return {
-        roots: () => {
-            try {
-                const roots = ctx?.agents?.roots?.()
-                return Array.isArray(roots) ? (roots as HarnessAgent[]) : []
-            } catch {
-                return []
-            }
-        },
+        roots: () => safely(() => {
+            const roots = ctx?.agents?.roots?.()
+            return Array.isArray(roots) ? (roots as HarnessAgent[]) : []
+        }, [] as HarnessAgent[]),
         registerTool: (tool: unknown) => {
-            ctx?.tools?.register?.(tool)
+            safely(() => ctx?.tools?.register?.(tool), undefined)
         },
         promptSection: (spec) => {
-            ctx?.systemPrompt?.section?.(spec)
+            safely(() => ctx?.systemPrompt?.section?.(spec), undefined)
         },
         onDispose: (cleanup: () => void) => {
-            if (typeof ctx?.effect === 'function') {
-                ctx.effect(() => cleanup, 'dsh-chat-interaction teardown')
-                return
-            }
-            // cordis v3 fallback / plain-object test contexts.
-            if (typeof ctx?.on === 'function') ctx.on('dispose', cleanup)
+            safely(() => {
+                if (typeof ctx?.effect === 'function') {
+                    ctx.effect(() => cleanup, 'dsh-chat-interaction teardown')
+                    return
+                }
+                // cordis v3 fallback / plain-object test contexts.
+                if (typeof ctx?.on === 'function') ctx.on('dispose', cleanup)
+            }, undefined)
         },
         on: (event: string, listener: (...args: any[]) => unknown) => {
-            ctx?.on?.(event, listener)
+            safely(() => ctx?.on?.(event, listener), undefined)
         },
         provide: (key: string, value: unknown, override?: boolean) => {
-            ctx?.provide?.(key, value, override)
+            safely(() => ctx?.provide?.(key, value, override), undefined)
         },
     }
 }

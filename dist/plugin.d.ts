@@ -125,11 +125,8 @@ export interface DshChatLayer {
 /**
  * Apply the layer to a harness context (cordis plugin entry point).
  *
- * `ctx` is either a REAL cordis context (services hang off it:
- * `ctx.agents.roots()`, `ctx.tools.register()`, `ctx.systemPrompt.section()`,
- * `ctx.effect()`, ...) or an already-flat `HarnessContext` (tests / custom
- * hosts). A real context is adapted automatically with `harnessFromCordis()`.
- *
- * Returns the assembled layer; never throws.
+ * HARD RULE: this function NEVER throws. A plugin bug must not take the host
+ * session down — any startup failure is logged with its stack (our own log
+ * file) and the layer is disabled for that session.
  */
 export declare function apply(ctx: HarnessContext | CordisContextLike, config?: PluginConfig): DshChatLayer | null;

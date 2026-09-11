@@ -39,7 +39,7 @@ import type { WeComBotChannelConfig } from './adapters/wecom-bot.js'
 import { ChannelLease } from './lease.js'
 import type { InstanceRole } from './lease.js'
 import { expandHome, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js'
-import { log, setLogFile } from './log.js'
+import { getLogFile, log, setLogFile } from './log.js'
 import type { LogFn } from './log.js'
 import type { RetryOptions } from './retry.js'
 import type { AuthState, FollowupContext, InboundMessage, ListenerStatus } from './types.js'
@@ -193,7 +193,48 @@ const RETRYABLE_CODES = ['SERVER', 'TIMEOUT', 'TRANSPORT', 'RATE_LIMIT', 'EMPTY_
  *
  * Returns the assembled layer; never throws.
  */
+/** Resources created during startup, so a crash can clean them up. */
+interface ApplyArtifacts {
+    hub?: InteractionHub
+    bridge?: DshBridge
+    leases?: Map<string, ChannelLease>
+}
+
+/**
+ * Apply the layer to a harness context (cordis plugin entry point).
+ *
+ * HARD RULE: this function NEVER throws. A plugin bug must not take the host
+ * session down — any startup failure is logged with its stack (our own log
+ * file) and the layer is disabled for that session.
+ */
 export function apply(ctx: HarnessContext | CordisContextLike, config: PluginConfig = {}): DshChatLayer | null {
+    const artifacts: ApplyArtifacts = {}
+    try {
+        return applyInner(ctx, config, artifacts)
+    } catch (e) {
+        const err = e as Error
+        // A crash may happen BEFORE the configured log file was applied
+        // (e.g. a hostile config object) — fall back to the default log so the
+        // stack is always recoverable. `log()` also mirrors errors to stderr,
+        // which is what the host prints.
+        try {
+            if (!getLogFile()) setLogFile(expandHome('~/.dsh/chat-interaction.log'))
+        } catch { /* best effort */ }
+        try {
+            log('error', `${name} startup CRASHED — plugin disabled, host continues. Stack:`, (err && err.stack) || String(err))
+        } catch { /* logging must never throw */ }
+        try { artifacts.hub?.teardown() } catch { /* best effort */ }
+        try { artifacts.bridge?.dispose() } catch { /* best effort */ }
+        try { for (const l of artifacts.leases?.values() ?? []) l.dispose() } catch { /* best effort */ }
+        return null
+    }
+}
+
+function applyInner(
+    ctx: HarnessContext | CordisContextLike,
+    config: PluginConfig,
+    artifacts: ApplyArtifacts
+): DshChatLayer | null {
     const cfg = resolvePluginConfig(config)
     if (!cfg.enabled) return null
     setLogFile(expandHome(cfg.logFile))
@@ -215,6 +256,7 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         annotateScore: scoring.annotateTurn,
         modelSelection: { restoreOnTurnEnd: scoring.restoreOnTurnEnd },
     })
+    artifacts.bridge = bridge
     const pendingStore = new PendingStore({ dir: expandHome(cfg.pendingDir) })
 
     // Channel-origin tracking: agentId → { at, channel } (approval gate).
@@ -300,7 +342,9 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         }
     }
     const hub = new InteractionHub(hubOpts)
+    artifacts.hub = hub
     for (const adapter of adapters.values()) hub.addChannel(adapter)
+    log('info', `channels ready: ${Array.from(adapters.keys()).join(', ')}`)
 
     // ---- plugin autonomy router (commands / confirmations / casual chat) ----
     const routerCfg = resolveRouterConfig(config.router)
@@ -510,6 +554,7 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
             })
             leases.set(chName, lease)
         }
+        artifacts.leases = leases
         log('info', `channel lease enabled (role=${instanceRole}, takeover=${instanceRole === 'interactive' ? 'preempts service' : 'waits for free'})`)
     }
 
@@ -540,6 +585,7 @@ export function apply(ctx: HarnessContext | CordisContextLike, config: PluginCon
         authState,
         teardown,
     }
+    log('info', 'registering service export (chatInteraction)…')
     if (typeof harness.provide === 'function') {
         harness.provide('chatInteraction', layer, true)
     } else {

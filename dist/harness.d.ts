@@ -47,29 +47,39 @@ export interface HarnessContext {
     /** Optional service export. */
     provide?(key: string, value: unknown, override?: boolean): void;
 }
-/** True when the value already implements the flat HarnessContext contract. */
+/**
+ * True when the value already implements the flat HarnessContext contract
+ * (tests / custom hosts). CORDIS contexts answer false *without* being probed
+ * for flat members: a host context is a proxy whose unknown-property access
+ * may throw (scope/trace interceptors), so probing `ctx.roots` on it is not
+ * safe. `Context.is()` uses a global-symbol brand and never triggers a get.
+ *
+ * Every access below is additionally guarded, because an exotic context
+ * implementation must never take the host process down.
+ */
 export declare function isHarnessContext(ctx: unknown): ctx is HarnessContext;
-/** Structural slice of a real cordis context (its host services). */
+/**
+ * Structural slice of a real cordis context (its host services). Member
+ * signatures are intentionally loose: a real `Context` uses generic overloads
+ * (`on<K extends keyof Events>`) that would not satisfy a stricter shape, and
+ * hosts call `apply()` from plain JS anyway.
+ */
 export interface CordisContextLike {
     agents?: {
-        roots?: () => unknown;
+        roots?: (...args: any[]) => any;
     };
     tools?: {
-        register?: (tool: unknown) => unknown;
+        register?: (...args: any[]) => any;
     };
     systemPrompt?: {
-        section?: (spec: {
-            name: string;
-            order?: number;
-            text: string;
-        }) => unknown;
+        section?: (...args: any[]) => any;
     };
     /** cordis v4 fiber teardown. */
-    effect?: (execute: () => unknown, label?: string) => unknown;
+    effect?: (...args: any[]) => any;
     /** Event bus (waterfall listeners). */
-    on?: (event: string, listener: (...args: any[]) => unknown) => unknown;
+    on?: (...args: any[]) => any;
     /** Service export. */
-    provide?: (key: string, value: unknown, override?: boolean) => unknown;
+    provide?: (...args: any[]) => any;
 }
 /**
  * Adapt a REAL cordis context (as handed to a plugin's `apply`) into the flat
