@@ -163,3 +163,72 @@ test('a throwing channel factory disables that channel, not the layer', () => {
     assert.match(logged, /channel probe setup failed: factory boom/)
     assert.doesNotMatch(logged, /startup CRASHED/, 'handled locally, not escalated')
 })
+
+/**
+ * The REAL failure mode (reproduced against the user's host): a cordis context
+ * enforces `inject` — reading a property that is neither a declared inject
+ * service nor a Context prototype member throws
+ * `cannot get property "X" without inject`.
+ * The layer must never probe such properties before it knows the ctx is cordis.
+ */
+function injectStrictCtx(services: Record<string, unknown>) {
+    const PROTOTYPE_MEMBERS = new Set(['on', 'once', 'off', 'emit', 'parallel', 'serial', 'bail', 'waterfall', 'effect', 'provide', 'extend', 'plugin', 'get', 'set', 'inject', 'reflect', 'scope', 'then'])
+    const target: Record<string, unknown> = { ...services }
+    return new Proxy(target, {
+        get(t, prop: string) {
+            if (typeof prop === 'symbol' || prop in t || PROTOTYPE_MEMBERS.has(prop)) return Reflect.get(t, prop)
+            throw new Error(`cannot get property "${String(prop)}" without inject`)
+        },
+        has() {
+            throw new Error('cannot use "in" on an inject-scoped context')
+        },
+    })
+}
+
+test('inject-strict host ctx: apply() must not probe unknown properties (regression)', () => {
+    const dir = tmpDir()
+    const registered: string[] = []
+    const effects: unknown[] = []
+    const ctx = injectStrictCtx({
+        agents: { roots: () => [] },
+        tools: { register: (t: { name?: string }) => { registered.push(t?.name || '?') } },
+        systemPrompt: { section: () => undefined },
+        effect: (fn: unknown) => { effects.push(fn); return () => undefined },
+        on: () => undefined,
+        provide: () => undefined,
+    })
+    let layer: DshChatLayer | null = null
+    assert.doesNotThrow(() => {
+        layer = apply(ctx as never, {
+            logFile: path.join(dir, 'layer.log'),
+            scoring: { enabled: false },
+            router: { enabled: false },
+            lease: { enabled: false },
+            channels: { probe: {} },
+            channelFactories: { probe: () => new ProbeChannel() },
+        } as never)
+    }, 'apply must not throw on an inject-scoped context')
+    assert.ok(layer, 'layer assembled')
+    assert.ok(registered.some((n) => n === 'probe_send_message'), `tools registered (${registered.join(',')})`)
+    assert.ok(effects.length >= 1, 'teardown registered through ctx.effect')
+    const logged = fs.readFileSync(path.join(dir, 'layer.log'), 'utf8')
+    assert.doesNotMatch(logged, /CRASHED/)
+    assert.match(logged, /cordis context detected/)
+    ;(layer as DshChatLayer | null)?.teardown()
+})
+
+test('inject-strict host ctx without services: still no throw, layer disabled', () => {
+    const dir = tmpDir()
+    const ctx = injectStrictCtx({ effect: () => undefined, on: () => undefined, provide: () => undefined })
+    let layer: DshChatLayer | null = null
+    assert.doesNotThrow(() => {
+        layer = apply(ctx as never, {
+            logFile: path.join(dir, 'layer.log'),
+            scoring: { enabled: false },
+            channels: { probe: {} },
+            channelFactories: { probe: () => new ProbeChannel() },
+        } as never)
+    })
+    assert.ok(layer, 'assembles; host services simply report nothing')
+    ;(layer as DshChatLayer | null)?.teardown()
+})

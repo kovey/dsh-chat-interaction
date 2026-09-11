@@ -300,13 +300,27 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.1` |
+| 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
 | 插件"没反应" | 这是预期：**默认不连接**。要么明确让 agent 连接，要么把 config 里 `role` 设为 `listener`（部署决策） |
 | 命令没被执行 | 命中 router 安全层（如 `git push`）→ 已转交 agent 走审批；日志有 `安全层未直接执行` |
 | 打分/闲聊没有模型参与 | 未配置 `DEEPSEEK_API_KEY`/`BASE_URL` → 自动回落纯规则（功能不受影响） |
 
-### 6. 独立使用核心（不依赖 cordis / 不触 agent runtime）
+### 6. 本地自检（排查挂载问题）
+
+不改任何 profile，直接在插件目录里验证「模块可加载 + apply 在真实 ctx 形状下不抛」：
+
+```sh
+cd ~/.dsh/profiles/<profile>/node_modules/dsh-chat-interaction
+node scripts/selfcheck.mjs        # ✓ 真实 cordis ctx / 敌意 ctx 两条路径都不应抛
+```
+
+它会打印每一步的结果与自检日志（含 `apply` 走到了哪一行），是排查
+「宿主启动崩溃」「插件没反应」最快的手段。仓库源码目录下同样可用。
+
+### 7. 独立使用核心（不依赖 cordis / 不触 agent runtime）
 
 ```ts
 import { InteractionHub, createFeishuChannel, createWeComChannel } from 'dsh-chat-interaction'
