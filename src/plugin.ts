@@ -15,6 +15,8 @@
  * @module dsh-chat-interaction/plugin
  */
 import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { InteractionHub } from './hub.js'
 import type { AckTextFn, HubOptions } from './hub.js'
 import { DshBridge, harnessFromCordis, isHarnessContext } from './harness.js'
@@ -47,6 +49,26 @@ import type { AuthState, FollowupContext, InboundMessage, ListenerStatus } from 
 
 export const name = 'dsh-chat-interaction'
 export const inject = ['tools', 'agents', 'systemPrompt']
+
+/**
+ * The package version, for logs and support ("which version are you on?").
+ * Walks up from the compiled module so it works both from `dist/` and from
+ * the test build; never throws.
+ */
+const PACKAGE_VERSION: string = (() => {
+    try {
+        let dir = path.dirname(fileURLToPath(import.meta.url))
+        for (let i = 0; i < 4; i++) {
+            const candidate = path.join(dir, 'package.json')
+            if (fs.existsSync(candidate)) {
+                const j = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { name?: string; version?: string }
+                if (j && j.name === name && typeof j.version === 'string') return j.version
+            }
+            dir = path.dirname(dir)
+        }
+    } catch { /* fall through */ }
+    return 'unknown'
+})()
 
 /** Per-channel entry config shared by every adapter. */
 export interface ChannelEntryConfig {
@@ -239,7 +261,7 @@ function applyInner(
     const cfg = resolvePluginConfig(config)
     if (!cfg.enabled) return null
     setLogFile(expandHome(cfg.logFile))
-    log('info', `${name} applying; channels: ${Object.keys(config.channels || {}).join(', ') || '(none)'}`)
+    log('info', `${name} v${PACKAGE_VERSION} applying; channels: ${Object.keys(config.channels || {}).join(', ') || '(none)'}`)
 
     // Real cordis ctx → flat harness surface (the layer itself only knows the
     // flat contract; this is the single integration seam with the host).

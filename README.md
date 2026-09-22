@@ -2,6 +2,8 @@
 
 一个**抽象的交互层**：一边接入 DSH (DeepSeek Harness)，一边接入飞书、企业微信这类 IM 平台。它把 `dsh-feishu` 插件里经过验证的交互模式（去重、即时回执、wait-reply 阻塞问答、followup 唤醒、重试守卫、审批门）**平台无关化**：接飞书、接企业微信、接任何新平台，都只是"实现一个适配器 + 一段配置"，不再是为每个 IM 重写一遍插件。
 
+> 变更历史见 [CHANGELOG.md](CHANGELOG.md)。
+>
 > **依赖基线：DSH v0.1.5-rc.1**（最新稳定版）。devDependencies 精确锁定
 > `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@0.1.5-rc.1` + `cordis@4.0.2`，
 > peerDependencies 声明 `^0.1.5-rc.1` 家族（宿主直接复用已装版本）。
@@ -45,8 +47,8 @@ pnpm 会直接复用、不会装第二份。
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.0
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.3）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.3
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -310,7 +312,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.1` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.3）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.3` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
