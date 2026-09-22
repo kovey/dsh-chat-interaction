@@ -25,6 +25,11 @@
 
 ### 变更
 
+- **平台 SDK 改为随插件自动安装**：`@larksuiteoapi/node-sdk`（飞书）与 `@wecom/crypto`（企微）
+  从 *optional peerDependencies* 移到 **optionalDependencies** ——
+  旧声明下 pnpm 不会安装它们，用户装完插件仍然 `Cannot find package '@larksuiteoapi/node-sdk'`，
+  而宿主/市场的入口自检会按 `main ?? 'index.js'` 去解析这个缺失依赖，报出
+  `Cannot find package '<pkg>/index.js'`，看起来像"插件缺 exports/main 字段"
 - **测试隔离**：插件级测试会把渠道租约写进真实 `~/.dsh`，与用户正在运行的会话互抢
   （实测：租约被真实 interactive 会话持有导致用例失败）→ 测试进程的 `DSH_HOME`
   指向临时目录，测试结果不再随机器状态波动
