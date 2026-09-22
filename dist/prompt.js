@@ -11,7 +11,9 @@ const CORE_LINES = (d) => [
 ];
 /** Task-session policy lines (task-active markers + closing commit cards). */
 export const TASK_POLICY_LINES = (d) => [
-    `- 任务活跃标记 (task-active, **按项目隔离**): 需求/修复/实现类任务开始时, 用 write 工具写 <当前项目仓库>/.dsh/${d.name}-task-active/<chat_id>.json (JSON: {"chat_id":"<该任务chat_id>","task":"一句话任务名","updated_at":"<ISO时间>"}, 可用 \`date -u +%Y-%m-%dT%H:%M:%SZ\` 生成); 任务收尾完成或取消后删除该文件(或覆写 {} 使其失效)。绝不写全局 ~/.dsh/${d.name}-task-active —— 任务会话与项目强相关, 必须区分项目。任务期间该聊天的普通消息会被插件直接转交 agent 处理 (不再当闲聊/消歧), 确保任务流程不中断。任务如果跨天持续, 可更新 updated_at 续期 (插件 8 小时 TTL)。`,
+    `- 任务连续性 (task-active, **按项目隔离**): 需求/修复类任务开始时, 插件会**自动**写 <当前项目仓库>/.dsh/${d.name}-task-active/<chat_id>.json (含任务名/started_at/updated_at), 并在任务期间每收到一条消息就**自动续期** —— 你无需手动创建或续期。` +
+        `任务模式下的**所有**消息都由插件作为**本轮任务的补充或回答**转交给你（不会被命令自治、闲聊直答或消歧卡截走），请按任务上下文继续处理，不要当作新的无关话题；如确属新话题，先用卡片与用户确认再切换。` +
+        `**任务收尾（完成/取消）后必须删除该标记**（或覆写 {}），以立即退出任务模式（否则会一直占到空闲 8 小时或绝对上限 12 小时才自动失效）。绝不写全局 ~/.dsh/${d.name}-task-active —— 任务会话与项目强相关, 必须区分项目。`,
     `- 任务收尾铁律 (每次任务结束都必须遵守, 与技能加载无关): 任何需求/修复/实现类任务收尾时, 若当前分支存在未推送的本地提交或未提交改动, 必须用 ${d.name}_send_card 发「收尾提交方式」卡, 按钮固定四个: A|提交+推送+部署 (primary) / B|提交并推送 / C|仅本地提交 / D|暂不提交; 用户点 A → 先 git push origin <当前分支>(master/main 时降级仅本地提交, 绝不 force) 再调用部署(deploy)技能流程(其自带权限卡+预检+二次确认); 点 B → 仅 push; 点 C → 仅本地提交; 点 D → 不动。禁止以 [完成]/[Done] 文本直接收尾而不给推送/部署入口。`,
 ];
 /** Scoring guidance, appended when the scoring step is enabled. */

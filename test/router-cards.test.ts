@@ -156,11 +156,25 @@ test('cancelling closes the question without waking the agent', async () => {
 
 test('a NEW instruction while a question is open is not swallowed', async () => {
     const { hub, pendingStore, followups } = setup()
-    await hub.dispatch(msg({ text: '新增一个活动功能' }))
+    await hub.dispatch(msg({ text: '新增一个活动功能' })) // 自动进入任务模式
     followups.length = 0
     await hub.dispatch(msg({ messageId: 'm3', text: '帮我看看 git status' }))
     assert.equal(pendingStore.has('probe', 'chat-1'), true, 'question stays open')
     assert.equal(followups.length, 1, 'the new instruction reaches the agent')
+    assert.match(followups[0].note || '', /进行中.*任务|任务的补充/, '任务模式上下文（该轮已自动进入任务模式）')
+})
+
+test('非任务场景：问题开放时的新指令，note 必须提示存在未回答问题', async () => {
+    const { hub, pendingStore, followups } = setup({ autoTaskMarker: false })
+    pendingStore.set('probe', 'chat-1', {
+        kind: 'disambiguation',
+        question: '未识别消息当作什么处理?',
+        options: [{ value: '1', label: '新指令' }, { value: '2', label: '闲聊忽略' }],
+        originalText: '随便一条',
+    })
+    await hub.dispatch(msg({ text: '帮我看看 git status' }))
+    assert.equal(pendingStore.has('probe', 'chat-1'), true, 'question stays open')
+    assert.equal(followups.length, 1)
     assert.match(followups[0].note || '', /未回答的问题/)
 })
 

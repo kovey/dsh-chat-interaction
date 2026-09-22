@@ -119,19 +119,38 @@ test('waitReply times out cleanly', async () => {
     assert.equal(r.timedOut, true)
 })
 
-test('pending question blocks waiter consumption (message goes to agent)', async () => {
+test('waiter precedence: plain text feeds the waiting tool call even with a plugin question open', async () => {
+    // Task continuity: while the agent is blocked on wait_reply, the user's
+    // answer must reach it — a plugin question must not swallow it.
     const ch = new MockChannel()
     let count = 0
     const hub = new InteractionHub({
         ack: false,
-        hasPendingQuestion: (channel, chatId) => channel === 'mock' && chatId === 'chat-1',
+        hasPendingQuestion: () => true,
         onFollowup: () => { count += 1; return true },
     })
     hub.addChannel(ch)
-    void hub.waitReply('mock', 'chat-1', 500)
+    const waiter = hub.waitReply('mock', 'chat-1', 500)
     await hub.dispatch(makeMsg({ messageId: 'p', text: 'yes' }))
+    const r = await waiter
+    assert.equal(r.timedOut, false, 'plain text answered the waiting call')
+    assert.equal(r.text, 'yes')
+    assert.equal(count, 0, 'no agent turn')
+})
+
+test('waiter precedence: a CARD CLICK still resolves the plugin question', async () => {
+    const ch = new MockChannel()
+    let count = 0
+    const hub = new InteractionHub({
+        ack: false,
+        hasPendingQuestion: () => true,
+        onFollowup: () => { count += 1; return true },
+    })
+    hub.addChannel(ch)
+    void hub.waitReply('mock', 'chat-1', 300).catch(() => undefined)
+    await hub.dispatch(makeMsg({ messageId: 'card', text: 'A', isCardAction: true }))
     await sleep(10)
-    assert.equal(count, 1)
+    assert.equal(count, 1, 'card click flowed to the router → agent')
 })
 
 test('images bypass the waiter so the agent sees them as a new turn', async () => {

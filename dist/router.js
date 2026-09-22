@@ -42,6 +42,8 @@ const ROUTER_DEFAULTS = {
     chatHistoryTurns: 10,
     chatDir: '~/.dsh/chat-history',
     taskActiveTtlMs: 8 * 60 * 60 * 1000,
+    autoTaskMarker: true,
+    maxTaskMs: 12 * 60 * 60 * 1000,
 };
 export function resolveRouterConfig(raw) {
     return {
@@ -303,24 +305,67 @@ export function createRouter(deps) {
         const keep = Math.max(1, cfg.chatHistoryTurns) * 2;
         writeFileSafe(chatHistoryPath(channel, chatId), JSON.stringify(history.slice(-keep)));
     };
-    const taskActive = (msg) => {
+    /** Where a chat's task-active marker lives (per project, per channel). */
+    const taskMarkerFile = (msg) => path.join(projStateDir(cwdOf()), `${msg.channel}-task-active`, `${msg.chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+    /**
+     * Read the task-active marker. Task mode means: every message in this chat
+     * belongs to the running task (supplement / answer), so the router must
+     * hand it to the agent instead of handling it itself.
+     */
+    const readTaskMarker = (msg) => {
         try {
-            const f = path.join(projStateDir(cwdOf()), `${msg.channel}-task-active`, `${msg.chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
-            const raw = readFileSafe(f);
+            const raw = readFileSafe(taskMarkerFile(msg));
             if (!raw)
-                return false;
+                return { active: false, reason: 'missing' };
             const j = JSON.parse(raw);
             if (!j || !j.chat_id)
-                return false;
-            const at = j.updated_at ? Date.parse(j.updated_at) : NaN;
-            if (Number.isFinite(at) && Date.now() - at > cfg.taskActiveTtlMs)
-                return false;
-            return true;
+                return { active: false, reason: 'malformed' };
+            const updatedAt = j.updated_at ? Date.parse(j.updated_at) : NaN;
+            if (Number.isFinite(updatedAt) && Date.now() - updatedAt > cfg.taskActiveTtlMs) {
+                return { active: false, task: j.task, updatedAt, reason: 'idle-ttl' };
+            }
+            const startedAt = j.started_at ? Date.parse(j.started_at) : (Number.isFinite(updatedAt) ? updatedAt : NaN);
+            if (cfg.maxTaskMs > 0 && Number.isFinite(startedAt) && Date.now() - startedAt > cfg.maxTaskMs) {
+                return { active: false, task: j.task, updatedAt, reason: 'max-age' };
+            }
+            return { active: true, task: j.task, updatedAt };
         }
         catch {
-            return false;
+            return { active: false, reason: 'malformed' };
         }
     };
+    /** Create (or refresh) the task marker for this chat. */
+    const writeTaskMarker = (msg, task, opts = {}) => {
+        try {
+            const file = taskMarkerFile(msg);
+            let startedAt = new Date().toISOString();
+            if (opts.keepStartedAt) {
+                try {
+                    const prev = JSON.parse(readFileSafe(file));
+                    if (prev && prev.started_at)
+                        startedAt = prev.started_at;
+                }
+                catch { /* fresh marker */ }
+            }
+            writeFileSafe(file, JSON.stringify({
+                chat_id: msg.chatId,
+                task: task.slice(0, 200),
+                started_at: startedAt,
+                updated_at: new Date().toISOString(),
+            }, null, 2));
+        }
+        catch (e) {
+            log('warn', 'task marker write failed:', e.message);
+        }
+    };
+    /** Refresh the idle clock of a running task (long tasks stay in task mode). */
+    const touchTaskMarker = (msg, task) => {
+        writeTaskMarker(msg, task || '进行中的任务', { keepStartedAt: true });
+    };
+    /** The note handed to the agent for every message that belongs to a task. */
+    const taskFollowupNote = (task) => `该会话有一轮**进行中**的任务${task ? `「${task}」` : ''}（task-active 标记）。` +
+        '本条消息请作为**该任务的补充或回答**继续处理（例如补充需求细节、回答你刚才的提问、提供日志/数据），' +
+        '**不要**当作新的无关话题：若你判断它确实与当前任务无关，先用卡片向用户确认是否切换话题。';
     const complete = async (system, messages, timeoutMs) => {
         const base = (cfg.baseURL || process.env.DEEPSEEK_BASE_URL || process.env.OPENAI_BASE_URL || '').replace(/\/$/, '');
         const key = cfg.apiKey || process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY || '';
@@ -588,6 +633,12 @@ export function createRouter(deps) {
             case 'requirement':
             case 'bugfix': {
                 const summary = c.summary || String(msg.text || '').slice(0, 120);
+                // A task just started: enter task mode so every later message in
+                // this chat is treated as a supplement/answer of THIS task.
+                if (cfg.autoTaskMarker && !readTaskMarker(msg).active) {
+                    writeTaskMarker(msg, summary);
+                    log('info', `task mode ON for ${msg.channel}/${msg.chatId}: ${summary.slice(0, 60)}`);
+                }
                 const asked = await openPermissionModeQuestion(msg, summary);
                 return {
                     handled: false,
@@ -612,15 +663,33 @@ export function createRouter(deps) {
         if (!cfg.enabled)
             return { handled: false, followup: true, mode: 'followup' };
         try {
-            // an active task owns this chat — never intercept mid-task
-            if (taskActive(msg)) {
+            // 1) an open plugin question owns a *clear* answer (card click,
+            //    option word, cancel) — resolve it even mid-task, otherwise a
+            //    permission-mode card could hang forever during a task.
+            const pending = deps.pendingStore.get(msg.channel, msg.chatId);
+            if (pending) {
+                const resolution = resolvePending(pending, String(msg.text || ''));
+                if (!resolution.ambiguous) {
+                    return await handleConfirmation(msg, true);
+                }
+                // ambiguous (looks like a NEW instruction) → fall through: it
+                // belongs to the running task / normal routing, and the question
+                // stays open (handleConfirmation does the same when reached).
+            }
+            // 2) task mode: this message belongs to the running task — hand it
+            //    over as a supplement/answer and keep the task alive.
+            const marker = readTaskMarker(msg);
+            if (marker.active) {
+                touchTaskMarker(msg, marker.task);
+                log('info', `task mode: message routed as task supplement (${msg.channel}/${msg.chatId})`);
                 return {
                     handled: false,
                     followup: true,
                     mode: 'task',
-                    followupNote: '该会话存在进行中的任务（task-active 标记），本条消息直接转交主 agent 处理。',
+                    followupNote: taskFollowupNote(marker.task),
                 };
             }
+            // 3) normal routing
             return await routeOnce(msg, { allowCards: true });
         }
         catch (e) {

@@ -305,14 +305,19 @@ export class InteractionHub {
             this.log('error', 'state update failed:', (e as Error).message)
         }
 
-        // 4) an agent-side waiter consumes the message — unless a plugin
-        //    pending question needs it, or the message carries images
-        //    (the agent must SEE them as a new turn).
+        // 4) an agent-side waiter consumes the message, so a running task gets
+        //    the answer it is blocked on. Precedence:
+        //      - images always become a new turn (the agent must SEE them)
+        //      - a CARD CLICK resolves a plugin question (permission mode /
+        //        disambiguation) even while a waiter is armed
+        //      - plain text prefers the waiter (it is the task answer); with no
+        //        waiter it flows to the router as usual
         try {
             const hasImages = !!(msg.imagePaths && msg.imagePaths.length)
             const pending = !!this.options.hasPendingQuestion &&
                 this.options.hasPendingQuestion(msg.channel, msg.chatId)
-            if (!pending && !hasImages) {
+            const waiterAllowed = !hasImages && (!pending || !msg.isCardAction)
+            if (waiterAllowed) {
                 const waiter = this.takeWaiter(msg.channel, msg.chatId)
                 if (waiter) {
                     this.log('info', `message consumed by wait_reply: ${msg.channel} ${msg.chatId}`, msg.messageId || '')

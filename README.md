@@ -282,10 +282,18 @@ echo manual > <项目>/.dsh/feishu-permission-mode.txt   # 或让 agent 发权�
 之后来自渠道的任务执行 `bash` 时，会先给飞书/企微推「同意 / 拒绝 / 始终同意」卡片；
 超时按 fail-closed 拒绝；「始终同意」把该命令追加到 `<项目>/.dsh/<渠道>-permission-allowlist.txt`。
 
-**任务连续性 + 收尾卡**：需求/修复类任务开始时，agent 会写
-`<项目>/.dsh/<渠道>-task-active/<chat_id>.json`（8h TTL）——这期间该 chat 的消息一律转交
-agent（不被命令/闲聊路由截走）；任务收尾时按提示词策略发「收尾提交方式」四按钮卡
-（A 提交+推送+部署 / B 提交并推送 / C 仅本地提交 / D 暂不提交）。
+**任务连续性 + 收尾卡**：需求/修复类任务开始时，插件**自动**写
+`<项目>/.dsh/<渠道>-task-active/<chat_id>.json`（含任务名 + started_at/updated_at）并进入任务模式：
+
+- 任务期间该 chat 的**每一条**消息都作为**本轮任务的补充或回答**转交 agent（补充细节、
+  回答 agent 的提问、提供日志…），不会被命令自治 / 闲聊直答 / 消歧卡截走；
+- 每条消息都会**自动续期**标记（长任务不会中途掉出任务模式）；
+- agent 用 `wait_reply` 提问时，用户的**普通文本回复优先喂给该等待调用**（即使插件自己也
+  有卡片问题悬着）；卡片点击则优先解决插件的卡片问题；
+- 退出任务模式：agent 收尾时删除标记（提示词已要求），或空闲超 `taskActiveTtlMs`（默认 8h）、
+  或超过绝对上限 `maxTaskMs`（默认 12h）自动失效；
+- 任务收尾按提示词策略发「收尾提交方式」四按钮卡
+  （A 提交+推送+部署 / B 提交并推送 / C 仅本地提交 / D 暂不提交）。
 
 **打分与模型路由**：每条转交 agent 的消息会先打分，回合里能看到
 `消息评分: 0.90 (high) → 执行模型: deepseek-v4-pro`；覆盖只作用于该回合，
@@ -457,7 +465,7 @@ class DingChannel extends BaseChannel {
 
 | 分类 | 处理 | 说明 |
 |---|---|---|
-| `task` | 转交 agent | 该会话存在未过期的 task-active 标记（8h TTL）→ 任务期间不拦截任何消息，保证流程连续 |
+| `task` | 转交 agent（任务补充/回答） | 该会话有进行中的任务 → **所有**消息都作为本轮任务的补充或回答交给 agent（不被命令自治/闲聊/消歧截走），并**自动续期**任务标记；任务名会写进回合上下文 |
 | `confirmation` | 插件内闭环 | 有 pending 问题时解析答案（选项字母 / 是/否/同意 / 全自动/需审批 / 取消）；权限模式选择写入 `<项目>/.dsh/<渠道>-permission-mode.txt`（并重置 allowlist）后**继续推进任务**；**看起来像新指令**的消息绝不吞掉——保持问题打开并转交 agent |
 | `command` | 插件内执行 | 安全层：白名单前缀 + 禁止规则；危险命令（`git push`、`rm -rf`、`cat .env`、`deploy`…）**不执行**，转交 agent 走审批流程；输出截断后回执 |
 | `requirement` / `bugfix` | 转交 agent **+ 自动发权限模式卡** | 插件发「[需要确认] 权限模式」卡（A 全自动 / B 需审批）+「[收到] 需求已接收」回执，记为 pending；agent 同时开始分析（收到卡片前不重复询问权限模式） |
@@ -581,6 +589,9 @@ scoring: {
     evaluator: 'auto',                 // auto | rule | model
     autoPermissionCard: true,          // 任务类消息自动发权限模式卡
     autoDisambiguation: true,          // 无法分类且无模型时自动发消歧卡
+    autoTaskMarker: true,              // 任务开始时自动进入任务模式（写 task-active 标记）
+    taskActiveTtlMs: 28_800_000,       // 任务模式空闲 TTL（8h，期间每条消息自动续期）
+    maxTaskMs: 43_200_000,             // 任务模式绝对上限（12h，0=不限）
     model: 'deepseek-v4-flash',        // 分类与闲聊用的模型
     autoReply: true,                   // 闲聊是否插件内直答
     chatHistoryTurns: 10,
@@ -660,7 +671,7 @@ src/
 
 ```sh
 pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.5-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为可选 peer
-npm test          # build + 148 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
+npm test          # build + 160 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
 npm run build     # 产物在 dist/
 ```
 

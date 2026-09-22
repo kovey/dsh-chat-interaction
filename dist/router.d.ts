@@ -36,8 +36,20 @@ export interface RouterConfig {
     chatHistoryTurns?: number;
     /** Where per-chat memory lives; default ~/.dsh/chat-history. */
     chatDir?: string;
-    /** Task-active marker TTL (default 8h). */
+    /** Idle TTL for the task-active marker (default 8h). */
     taskActiveTtlMs?: number;
+    /**
+     * Create the task-active marker automatically when a task starts
+     * (requirement/bugfix), so task continuity does not depend on the agent
+     * remembering to write it (default true).
+     */
+    autoTaskMarker?: boolean;
+    /**
+     * Absolute cap on task mode regardless of activity (default 12h;
+     * 0/negative = unlimited). Guards against a chat getting stuck in
+     * "everything is a task supplement" forever.
+     */
+    maxTaskMs?: number;
     /** Command execution directory; default = hub/bridge project cwd. */
     cwdOf?: () => string;
     /** Injectable fetch (tests). */
@@ -59,6 +71,8 @@ export interface ResolvedRouterConfig {
     chatHistoryTurns: number;
     chatDir: string;
     taskActiveTtlMs: number;
+    autoTaskMarker: boolean;
+    maxTaskMs: number;
     cwdOf?: () => string;
     fetchImpl?: typeof fetch;
 }
