@@ -5,7 +5,7 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
-## [Unreleased]
+## [0.1.4] - 2026-09-22
 
 ### 修复
 
@@ -133,6 +133,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.1.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.4
 [0.1.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.3
 [0.1.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.2
 [0.1.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.1
