@@ -61,12 +61,17 @@ export interface ChannelToolDeps {
     authState(): AuthState
 }
 
+// NOTE: output schemas must mirror the EXACT shape of the values the tools
+// return (`SendResult` / `WaitResult` / `AuthState` are camelCase). The host
+// validates every tool result against this schema with
+// `additionalProperties: false`, so a snake_case/camelCase mismatch makes the
+// call fail with `returned invalid output` — see test/tool-output-schema.test.ts.
 const OUTPUT_SCHEMA = {
     type: 'object',
     additionalProperties: false,
     properties: {
         ok: { type: 'boolean', required: true },
-        message_id: { type: 'string' },
+        messageId: { type: 'string' },
         error: { type: 'string' },
     },
 }
@@ -189,10 +194,10 @@ export function buildChannelTools(desc: ChannelDescriptor, deps: ChannelToolDeps
                 additionalProperties: false,
                 properties: {
                     ok: { type: 'boolean', required: true },
-                    timed_out: { type: 'boolean', required: true },
+                    timedOut: { type: 'boolean', required: true },
                     text: { type: 'string' },
-                    message_id: { type: 'string' },
-                    is_card_action: { type: 'boolean' },
+                    messageId: { type: 'string' },
+                    isCardAction: { type: 'boolean' },
                 },
             },
             render: (_args, value: WaitResult) => [{
@@ -251,11 +256,11 @@ export function buildChannelTools(desc: ChannelDescriptor, deps: ChannelToolDeps
                     ok: { type: 'boolean', required: true },
                     mode: { type: 'string' },
                     allowlist: { type: 'array', items: { type: 'string' } },
-                    active_chat: { type: 'string' },
-                    p2p_chat: { type: 'string' },
-                    listener_role: { type: 'string' },
-                    listener_connected: { type: 'boolean' },
-                    pending_questions: { type: 'array', items: { type: 'string' } },
+                    activeChat: { type: 'string' },
+                    p2pChat: { type: 'string' },
+                    listenerRole: { type: 'string' },
+                    listenerConnected: { type: 'boolean' },
+                    pendingQuestions: { type: 'array', items: { type: 'string' } },
                     error: { type: 'string' },
                 },
             },

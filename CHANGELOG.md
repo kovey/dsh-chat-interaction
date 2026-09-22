@@ -5,6 +5,30 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [Unreleased]
+
+### 修复
+
+- **工具输出 schema 与实际返回值不一致**（用户报告：`feishu_auth_state` 调用报
+  `tool "feishu_auth_state" returned invalid output: "value.activeChat" is not a declared
+  property`）：输出 schema 写成 snake_case，而返回值是 camelCase，宿主的输出校验
+  （`additionalProperties: false`）会直接拒绝整个调用。**受影响的不止 `auth_state`**：
+  - `send_message` / `send_card`：`message_id` → `messageId`
+  - `wait_reply`：`timed_out` / `message_id` / `is_card_action` → camelCase
+  - `auth_state`：`active_chat` / `p2p_chat` / `listener_role` / `listener_connected` /
+    `pending_questions` → camelCase
+  → 全部对齐为 camelCase；新增 `test/tool-output-schema.test.ts`：用**宿主内部同一个**
+  校验器 `validateJsonSchemaValue`（`@deepseek-ai/dsh-tools` 导出）校验每个渠道工具的
+  每条返回路径（成功 / 无 messageId / 失败 / 超时 / 真实 hub 调用 / plugin 层 authState）
+- **飞书可选依赖缺失时的报错不可执行**：原来只抛 `Cannot find package
+  '@larksuiteoapi/node-sdk'` → 现在给出可直接执行的修复命令与最低版本要求
+
+### 变更
+
+- **测试隔离**：插件级测试会把渠道租约写进真实 `~/.dsh`，与用户正在运行的会话互抢
+  （实测：租约被真实 interactive 会话持有导致用例失败）→ 测试进程的 `DSH_HOME`
+  指向临时目录，测试结果不再随机器状态波动
+
 ## [0.1.3] - 2026-09-22
 
 ### 修复

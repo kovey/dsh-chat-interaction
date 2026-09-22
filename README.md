@@ -236,6 +236,7 @@ grep -E "bot open_id discovered|ws listener started|access token refreshed|callb
 | `40013 invalid corpid` | 企微 `corp_id` 不对（注意不是 AgentId） |
 | `60020 not allow to access from your ip` | 企微未配置企业可信 IP |
 | 回调 `signature mismatch` | `token` / `aes_key` 与后台不一致，或 URL 路径与 `callback.path` 不一致 |
+| `feishu: 缺少可选依赖 @larksuiteoapi/node-sdk ...` | 按提示在 profile 里装该 SDK（见「渠道适配器 → 飞书」） |
 | 智能机器人 `missing bot credentials (...)` | `botId`/`secret` 四类来源都没配（注意它不是 corpId/corpSecret） |
 | 智能机器人连不上 / 反复重连 | 机器人 ID 或 Secret 错、机器人未启用；日志里有 `[aibot]` 前缀的重连记录 |
 
@@ -377,6 +378,9 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 - **图片**：下载到 `<项目>/.dsh/feishu-media/`，路径随消息交给 agent（`read_image` 直接读）；失败只记 `image_errors`，不阻断消息。
 - **出站**：text / post（富文本）/ interactive 卡片；卡片按 message_id 存档供点击重建。
 - 凭证链（逐字段）：config → `credsFile` → `<项目>/.dsh/feishu-app.json` → `~/.dsh/feishu-app.json` → `FEISHU_APP_ID`/`FEISHU_APP_SECRET`。详见「使用 → 渠道凭证」。
+- **依赖**：`@larksuiteoapi/node-sdk >= 1.60.0` 是可选 peer，用飞书渠道时必须装：
+  `dsh plugin --profile <profile> add @larksuiteoapi/node-sdk`（未装时 `feishu_listener start`
+  会给出这条命令；也可用 `config.sdk` 注入自定义客户端）。
 
 ### 企业微信：两条接入路径
 

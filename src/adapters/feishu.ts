@@ -337,12 +337,27 @@ export class FeishuChannel extends BaseChannel {
             this.lark = this.cfg.sdk
             return this.lark
         }
-        const mod = (await import('@larksuiteoapi/node-sdk')) as unknown as {
+        let mod: {
             default?: LarkSdkLike
             WSClient?: LarkSdkLike['WSClient']
             Client?: LarkSdkLike['Client']
             EventDispatcher?: LarkSdkLike['EventDispatcher']
             LoggerLevel?: { error: unknown }
+        }
+        try {
+            mod = (await import('@larksuiteoapi/node-sdk')) as unknown as typeof mod
+        } catch (e) {
+            const msg = (e as Error)?.message || String(e)
+            // 可选依赖缺失是最常见的接入失败：给出可直接执行的修复命令，
+            // 而不是把 "Cannot find package ..." 原样抛给用户。
+            if (/Cannot find (package|module)/.test(msg)) {
+                throw new Error(
+                    'feishu: 缺少可选依赖 @larksuiteoapi/node-sdk。在 dsh profile 里安装后重试：' +
+                    'dsh plugin --profile <profile> add @larksuiteoapi/node-sdk' +
+                    '（或用 config.sdk 注入自定义客户端）'
+                )
+            }
+            throw e
         }
         this.lark = {
             WSClient: mod.WSClient ?? mod.default?.WSClient,
@@ -351,7 +366,10 @@ export class FeishuChannel extends BaseChannel {
             LoggerLevel: mod.LoggerLevel ?? mod.default?.LoggerLevel,
         }
         if (!this.lark.WSClient || !this.lark.Client || !this.lark.EventDispatcher) {
-            throw new Error('Feishu SDK not found: install @larksuiteoapi/node-sdk')
+            throw new Error(
+                'feishu: @larksuiteoapi/node-sdk 已安装但缺少 WSClient/Client/EventDispatcher 导出 —— ' +
+                '请确认版本 >= 1.60.0（dsh plugin --profile <profile> add @larksuiteoapi/node-sdk）'
+            )
         }
         return this.lark
     }

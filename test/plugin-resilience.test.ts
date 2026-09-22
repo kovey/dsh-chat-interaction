@@ -17,6 +17,11 @@ import type { DshChatLayer } from '../src/plugin.js'
 import { BaseChannel } from '../src/channel.js'
 import type { SendResult } from '../src/types.js'
 
+// 测试隔离：把 DSH_HOME 指向临时目录 —— 渠道租约、凭证链、模型目录读取都不再
+// 触碰真实的 ~/.dsh（否则测试会与用户正在运行的会话互抢租约，结果随机器状态波动）。
+process.env.DSH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-home-'))
+
+
 class ProbeChannel extends BaseChannel {
     readonly name = 'probe'
     readonly label = '探针'
