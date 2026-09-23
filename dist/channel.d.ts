@@ -41,6 +41,15 @@ export interface ChannelAdapter {
     sendRichText?(chatId: string, title: string, body: string): Promise<SendResult>;
     /** Interactive card with buttons; optional capability. */
     sendCard?(chatId: string, card: CardSpec): Promise<SendResult>;
+    /**
+     * Deliver a file from the local disk (approval artifacts: the specification a
+     * human is asked to approve, the test design, a measurement detail).
+     * Optional capability — a channel without it falls back to text.
+     */
+    sendFile?(chatId: string, file: {
+        path: string;
+        name?: string;
+    }): Promise<SendResult>;
     /** Register the single inbound sink. */
     setInboundHandler(handler: InboundHandler): void;
     /** Release every resource (sockets, servers, timers). */

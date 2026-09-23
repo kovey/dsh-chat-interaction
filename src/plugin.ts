@@ -27,7 +27,7 @@ import { buildPromptSection } from './prompt.js'
 import { descriptorOf } from './channel.js'
 import type { ChannelAdapter } from './channel.js'
 import { PendingStore } from './pending.js'
-import { askViaChannel, setupAuthorization } from './approval.js'
+import { askViaChannel, resolveContainedPath, setupAuthorization } from './approval.js'
 import { applyScoreConfig, createScorer, resolveScoringConfig } from './scoring.js'
 import { readModelCatalog, reportDropped, sanitizeModelOverride } from './model-catalog.js'
 import type { ResolvedScoringConfig, ScoringConfig } from './scoring.js'
@@ -113,6 +113,22 @@ export interface PluginConfig {
         answerTimeoutMs?: number
         /** L3: route ALL harness approval asks to channel cards (headless 24×7); default off. */
         bridgeHarnessApproval?: boolean
+        /**
+         * Require the clicker to be on the project's approver list
+         * (`<project>/.dsh/<channel>-approvers.txt`, one platform user id per line).
+         * Default false = anyone in the bound chat may decide, which is the
+         * historical behaviour; a 24×7 service should turn this on.
+         */
+        requireApproverList?: boolean
+        /** Deliver the artifacts an approval card names (default true when the channel supports files). */
+        sendApprovalArtifacts?: boolean
+        /**
+         * Accept ONLY nonce-bound card clicks as approval answers (default false).
+         * With it on, a typed `yes`/`同意` is answered and recorded as
+         * `text-rejected` but never decides — turn it on when the replay story
+         * must be literally true.
+         */
+        requireTokenClick?: boolean
     }
     channels?: {
         feishu?: FeishuChannelConfig & ChannelEntryConfig
@@ -161,6 +177,9 @@ export interface ResolvedPluginConfig {
         activeWindowMs: number
         answerTimeoutMs: number
         bridgeHarnessApproval: boolean
+        requireApproverList: boolean
+        sendApprovalArtifacts: boolean
+        requireTokenClick: boolean
     }
 }
 
@@ -174,6 +193,9 @@ const CONFIG_DEFAULTS: ResolvedPluginConfig = {
         activeWindowMs: 600_000,
         answerTimeoutMs: 300_000,
         bridgeHarnessApproval: false,
+        requireApproverList: false,
+        sendApprovalArtifacts: true,
+        requireTokenClick: false,
     },
 }
 
@@ -525,22 +547,65 @@ function applyInner(
             const m = origin.get(agent.id)
             return !!m && Date.now() - m.at < cfg.permission.activeWindowMs
         },
-        askCard: async (agent, cmd, signal) => {
+        askCard: async (agent, cmd, signal, subject) => {
             const channel = channelOfAgent(agent)
             const adapter = adapters.get(channel)
             if (!adapter) return null
             const paths = statePaths(channel, cwdOfAgent(agent))
             const chatId = readFileSafe(paths.p2pChat) || readFileSafe(paths.activeChat)
+            // The approver list is PROJECT-local (no global fallback): a decision
+            // that lands in the wrong chat is a decision about the wrong project.
+            const approvers = cfg.permission.requireApproverList
+                ? readFileSafe(paths.approvers)
+                      .split('\n')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                : []
             return askViaChannel({
                 chatId,
                 log: config.log || log,
                 label: adapter.label,
+                ...(subject === undefined ? {} : { subject }),
                 answerTimeoutMs: cfg.permission.answerTimeoutMs,
+                approvers,
+                requireTokenClick: cfg.permission.requireTokenClick,
+                respond: async (text) => {
+                    if (chatId) await hub.sendText(channel, chatId, text)
+                },
+                onDecision: (entry) => {
+                    // Every decision (and every refusal) is a row: the IM half of
+                    // the audit trail. A failure here must not change the decision.
+                    try {
+                        fs.appendFileSync(paths.approvalLedger, JSON.stringify(entry) + '\n')
+                    } catch (e) {
+                        (config.log || log)('error', 'approval ledger write failed:', (e as Error).message)
+                    }
+                },
+                ...(adapter.sendFile
+                    ? {
+                          sendFile: async (file: { path: string }) => {
+                              // Artifacts are workspace-relative in the suite's
+                              // context block, but the block is payload data (a
+                              // model can influence it): resolve it and prove it
+                              // stays inside the project before shipping the file.
+                              const contained = resolveContainedPath(cwdOfAgent(agent), file.path)
+                              if (!contained) {
+                                  (config.log || log)(
+                                      'warn',
+                                      `approval artifact outside the project rejected: ${file.path}`
+                                  )
+                                  return { ok: false, error: 'artifact outside the project workspace' }
+                              }
+                              return hub.sendFile(channel, chatId ?? '', { path: contained })
+                          },
+                          sendArtifacts: cfg.permission.sendApprovalArtifacts,
+                      }
+                    : {}),
                 sendCard: (id, title, body, buttons) => hub.sendCard(channel, id, { title, body, buttons }),
                 waitReply: async (id, t, sig) => {
                     const r = await hub.waitReply(channel, id, t, sig)
                     if (!r.ok || r.timedOut) return null
-                    return { channel, chatId: id, chatType: 'p2p', text: r.text, isCardAction: r.isCardAction }
+                    return { channel, chatId: id, chatType: 'p2p', text: r.text, isCardAction: r.isCardAction, senderId: r.senderId, messageId: r.messageId }
                 },
             }, cmd, signal)
         },

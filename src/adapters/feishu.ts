@@ -37,6 +37,10 @@ export interface LarkClientLike {
             message?: {
                 create(opts: unknown): Promise<unknown>
             }
+            /** File upload for approval artifacts (`sendFile`). */
+            file?: {
+                create(opts: unknown): Promise<unknown>
+            }
         }
     }
     request?(opts: {
@@ -308,6 +312,7 @@ export class FeishuChannel extends BaseChannel {
         cards: true,
         richText: true,
         images: true,
+        files: true,
         inbound: true,
     }
 
@@ -660,6 +665,39 @@ export class FeishuChannel extends BaseChannel {
 
     override sendRichText(chatId: string, title: string, body: string): Promise<SendResult> {
         return this.send(chatId, normalizeNewlines(String(body ?? '')), { postTitle: title })
+    }
+
+    /**
+     * Upload a local file and send it as a file message.
+     *
+     * Used by the approval flow to deliver what a human is being asked to review
+     * (the specification, the test design, a coverage detail): a card can only
+     * carry so much markdown, and an approval "by summary" is not an approval.
+     */
+    async sendFile(chatId: string, file: { path: string; name?: string }): Promise<SendResult> {
+        try {
+            if (this.disposed) return { ok: false, error: 'channel is disposed' }
+            const name = file.name ?? path.basename(file.path)
+            const api = await this.ensureApiClient()
+            const upload = api.im?.v1?.file
+            if (!upload?.create) return { ok: false, error: 'lark sdk exposes no file upload' }
+            const created = (await upload.create({
+                data: { file_type: 'stream', file_name: name, file: fs.createReadStream(file.path) },
+            })) as { data?: { file_key?: string }; code?: number; msg?: string }
+            const fileKey = created?.data?.file_key
+            if (!fileKey) return { ok: false, error: `upload returned no file_key (${created?.code ?? '?'} ${created?.msg ?? ''})` }
+            const message = api.im?.v1?.message
+            if (!message?.create) return { ok: false, error: 'lark sdk exposes no message.create' }
+            await message.create({
+                params: { receive_id_type: 'chat_id' },
+                data: { receive_id: chatId, msg_type: 'file', content: JSON.stringify({ file_key: fileKey }) },
+            })
+            return { ok: true }
+        } catch (e) {
+            const err = e as Error
+            log('error', 'sendFile failed:', err.message)
+            return { ok: false, error: err.message }
+        }
     }
 
     override sendCard(chatId: string, card: CardSpec): Promise<SendResult> {

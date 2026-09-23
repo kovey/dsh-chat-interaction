@@ -92,6 +92,12 @@ export interface WaitResult {
     text: string;
     messageId: string;
     isCardAction: boolean;
+    /**
+     * Who sent it. Required for approval cards: a decision that cannot name the
+     * person who clicked is not an audit trail (the suite records `by` in the
+     * specification approval and in the delivery receipt).
+     */
+    senderId?: string;
 }
 /** What a channel adapter is able to do. The tools layer reads this. */
 export interface ChannelCapabilities {
@@ -101,6 +107,12 @@ export interface ChannelCapabilities {
     richText: boolean;
     /** Inbound images are downloaded to local files (`imagePaths`). */
     images: boolean;
+    /**
+     * Outbound FILE delivery (`sendFile`), used to hand an approval reviewer the
+     * artifacts (specification, test design) a card only summarises. Optional so
+     * third-party adapters keep compiling; absent means "not supported".
+     */
+    files?: boolean;
     /** The platform delivers inbound events while `connected`. */
     inbound: boolean;
 }

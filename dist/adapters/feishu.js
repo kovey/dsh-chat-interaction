@@ -257,6 +257,7 @@ export class FeishuChannel extends BaseChannel {
         cards: true,
         richText: true,
         images: true,
+        files: true,
         inbound: true,
     };
     cfg;
@@ -592,6 +593,43 @@ export class FeishuChannel extends BaseChannel {
     }
     sendRichText(chatId, title, body) {
         return this.send(chatId, normalizeNewlines(String(body ?? '')), { postTitle: title });
+    }
+    /**
+     * Upload a local file and send it as a file message.
+     *
+     * Used by the approval flow to deliver what a human is being asked to review
+     * (the specification, the test design, a coverage detail): a card can only
+     * carry so much markdown, and an approval "by summary" is not an approval.
+     */
+    async sendFile(chatId, file) {
+        try {
+            if (this.disposed)
+                return { ok: false, error: 'channel is disposed' };
+            const name = file.name ?? path.basename(file.path);
+            const api = await this.ensureApiClient();
+            const upload = api.im?.v1?.file;
+            if (!upload?.create)
+                return { ok: false, error: 'lark sdk exposes no file upload' };
+            const created = (await upload.create({
+                data: { file_type: 'stream', file_name: name, file: fs.createReadStream(file.path) },
+            }));
+            const fileKey = created?.data?.file_key;
+            if (!fileKey)
+                return { ok: false, error: `upload returned no file_key (${created?.code ?? '?'} ${created?.msg ?? ''})` };
+            const message = api.im?.v1?.message;
+            if (!message?.create)
+                return { ok: false, error: 'lark sdk exposes no message.create' };
+            await message.create({
+                params: { receive_id_type: 'chat_id' },
+                data: { receive_id: chatId, msg_type: 'file', content: JSON.stringify({ file_key: fileKey }) },
+            });
+            return { ok: true };
+        }
+        catch (e) {
+            const err = e;
+            log('error', 'sendFile failed:', err.message);
+            return { ok: false, error: err.message };
+        }
     }
     sendCard(chatId, card) {
         return this.send(chatId, normalizeNewlines(String(card.body ?? '')), {

@@ -290,6 +290,27 @@ echo manual > <项目>/.dsh/feishu-permission-mode.txt   # 或让 agent 发权�
 之后来自渠道的任务执行 `bash` 时，会先给飞书/企微推「同意 / 拒绝 / 始终同意」卡片；
 超时按 fail-closed 拒绝；「始终同意」把该命令追加到 `<项目>/.dsh/<渠道>-permission-allowlist.txt`。
 
+**审批卡片的按钮值带一次性令牌**（`approve:<nonce>` / `reject:<nonce>` / `always:<nonce>`）：转发的卡、上一轮遗留的旧卡、
+手打的 `yes` 都不能复用。`parseAnswer()` 同时接受旧的字面量（`yes`/`no`/`always`/中文）与令牌形态，两个通道都一样；
+router 也把令牌形态识别为"回答确认"而不是新任务。
+
+**只认按钮点击（可选，更严）**：`permission.requireTokenClick: true` 时，**只有带正确一次性 token 的卡片点击**才算决策；
+手打的 `yes`/`同意` 会被回一句提示并记为 `text-rejected`（默认 false = 文本回答仍可用，保持老习惯）。
+与 `requireApproverList` 可叠加：点击既要 token 正确、也要在名单内。
+
+**审批材料只从项目工作区内投递**：卡片 `approval-context` 里列的 `artifacts` 会被解析成绝对路径并做
+realpath 包含校验 —— 绝对路径、`../` 逃逸、指向项目外的符号链接一律拒绝（记 warn，不发送），
+避免材料清单被诱导成"读取任意本地文件"。超过 5 份时只发前 5 份。
+
+**严格审批人名单（可选）**：`permission.requireApproverList: true` 时，只有
+`<项目>/.dsh/<渠道>-approvers.txt` 里列出的用户能决定，名单外的人点击**不生效**（会被回一句"无权限"，且不消费这张卡）。
+文件里写平台上报的**同一种 id**：飞书是卡片点击事件里的 `operator.user_id`（与普通消息的 `senderId` 同一套），
+企业微信是它自己的 userid。留空 + `requireApproverList: false`（默认）= 该会话里的任何人都可以决定（保持旧行为）。
+
+**每个决定都会记账**：`<项目>/.dsh/<渠道>-approvals.jsonl` 追加一行
+`{at, chatId, userId, decision, toolName, nonce, messageId, missionId?}`——包括"超时/发送失败/无权限/旧卡"这些非放行结果。
+审批材料的文件投递走 `ChannelAdapter.sendFile`（飞书已实现：上传后发文件消息），通道不支持时退化为卡片正文。
+
 **任务连续性 + 收尾卡**：需求/修复类任务开始时，插件**自动**写
 `<项目>/.dsh/<渠道>-task-active/<chat_id>.json`（含任务名 + started_at/updated_at）并进入任务模式：
 

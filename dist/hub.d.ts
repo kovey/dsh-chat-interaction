@@ -80,6 +80,14 @@ export declare class InteractionHub {
      */
     sendText(channel: string, chatId: string, text: string): Promise<SendResult>;
     sendRichText(channel: string, chatId: string, title: string, body: string): Promise<SendResult>;
+    /**
+     * Deliver a local file (approval artifacts). Channels without the capability
+     * answer `ok: false` — the caller decides whether text is enough.
+     */
+    sendFile(channel: string, chatId: string, file: {
+        path: string;
+        name?: string;
+    }): Promise<SendResult>;
     sendCard(channel: string, chatId: string, card: CardSpec): Promise<SendResult>;
     /**
      * Block until the user's next message in this chat on this channel.

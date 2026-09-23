@@ -36,11 +36,83 @@ export declare function evaluateGate({ mode, allowlist, cmd, originated }: GateI
 export interface AnswerDecision {
     decision: 'allow' | 'deny';
     always: boolean;
+    /** Who decided (platform user id). Absent for text answers. */
+    by?: string;
+    /** Platform message id of the card/message carrying the decision. */
+    messageId?: string;
+    /** Decision time (epoch ms). */
+    at?: number;
+    /** The one-shot token the card carried, when it was a button click. */
+    nonce?: string;
+}
+/** The fence the engineering suite uses to embed machine-readable fields. */
+export declare const APPROVAL_CONTEXT_FENCE = "approval-context";
+/** Fields a card renders; mirrors `dsh-eng-core`'s `ApprovalContext`. */
+export interface ApprovalContext {
+    kind?: string;
+    missionId?: string;
+    title?: string;
+    revision?: number | string;
+    risk?: string;
+    artifacts?: string[];
+    facts?: Record<string, string | number>;
+    channelHints?: {
+        buttons?: string[];
+        requiresReason?: boolean;
+    };
+}
+/**
+ * Read the suite's `approval-context` block out of a reason.
+ *
+ * A standalone copy of the same convention (this plugin does not depend on
+ * `dsh-eng-core`): prose for a text answerer, fenced JSON for a card.
+ */
+export declare function parseApprovalContext(reason: string): ApprovalContext | undefined;
+/** The reason without its machine block: what a text answerer should show. */
+export declare function proseOf(reason: string): string;
+/**
+ * Resolve an approval artifact to an ABSOLUTE path that is provably inside
+ * `root`, or return null.
+ *
+ * The artifact list comes from the approval payload (`approval-context` block),
+ * which the suite writes but a model can also influence — so an absolute path or
+ * a `../` traversal must not be able to hand the chat an arbitrary local file
+ * (e.g. `~/.dsh/feishu-app.json`, which holds app credentials).
+ *
+ * Symlinks are resolved first, so a link inside the project pointing outside is
+ * rejected as well. Directories and missing files are not artifacts.
+ */
+export declare function resolveContainedPath(root: string, requested: string): string | null;
+/** One ledger row per decision (or refusal) — the IM half of the audit trail. */
+export interface ApprovalLedgerEntry {
+    at: number;
+    chatId: string;
+    userId?: string;
+    decision: 'allow' | 'deny' | 'timeout' | 'send-failed' | 'unauthorized' | 'stale-click'
+    /** A text answer refused because the flow demands a button click. */
+     | 'text-rejected';
+    /** How the decision arrived: a nonce-bound click, or a typed answer. */
+    via?: 'click' | 'text';
+    /** The tool that asked, when the payload carried one. */
+    toolName?: string;
+    nonce: string;
+    messageId?: string;
+    missionId?: string;
 }
 /** Parse the card answer into a decision + always flag. */
 export declare function parseAnswer(text: string): AnswerDecision | null;
 /** The standard approval card (buttons: yes / no / always). */
-export declare function buildApprovalCard(cmd: string): {
+export declare function buildApprovalCard(cmd: string, nonce?: string, allowAlways?: boolean): {
+    body: string;
+    buttons: ButtonSpec[];
+};
+/**
+ * The card for a suite approval (spec / delivery / standards / dependency).
+ *
+ * The fields come from the `approval-context` block, so a card says WHAT is being
+ * decided instead of pasting an essay — and the buttons stay nonce-bound.
+ */
+export declare function buildContextCard(context: ApprovalContext, prose: string, nonce: string, allowAlways?: boolean): {
     body: string;
     buttons: ButtonSpec[];
 };
@@ -65,6 +137,14 @@ export interface ApprovalRequestPayload {
     } | null;
     signal?: AbortSignal;
 }
+/** Decisions this plugin returns to the harness approval seam (see the suite's contract). */
+export type HarnessApprovalReply = 'allowed-once' | 'rejected' | {
+    decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
+    by?: string;
+    messageId?: string;
+    at?: number;
+    source?: string;
+};
 export interface ApprovalDeps {
     log: LogFn;
     /** Current permission mode for the agent's project. */
@@ -77,7 +157,9 @@ export interface ApprovalDeps {
      * Put the command to an inline card on the originating channel and wait
      * for the answer. Resolve null on timeout / send failure (fail closed).
      */
-    askCard(agent: PreExecutePayload['agent'], cmd: string, signal?: AbortSignal): Promise<AnswerDecision | null>;
+    askCard(agent: PreExecutePayload['agent'], cmd: string, signal?: AbortSignal, 
+    /** The asking tool, for the card heading (suite approvals). */
+    subject?: string): Promise<AnswerDecision | null>;
 }
 /** Minimal structural slice of the harness context that approval needs. */
 export interface ApprovalHarness {
@@ -92,7 +174,7 @@ export declare function setupAuthorization(harness: ApprovalHarness, deps: Appro
     bridgeHarnessApproval?: boolean;
 }): () => void;
 /** Ask via one channel, wait for the card click, parse the answer. */
-export declare function askViaChannel(opts: {
+export interface AskViaChannelOptions {
     chatId: string | null;
     sendCard: (chatId: string, title: string, body: string, buttons: ButtonSpec[]) => Promise<{
         ok: boolean;
@@ -102,4 +184,36 @@ export declare function askViaChannel(opts: {
     log: LogFn;
     label: string;
     answerTimeoutMs: number;
-}, cmd: string, signal?: AbortSignal): Promise<AnswerDecision | null>;
+    /** Card heading detail, e.g. the asking tool. */
+    subject?: string;
+    /**
+     * Ids allowed to decide. EMPTY means "anyone in the bound chat", which keeps
+     * the historical behaviour; a filled list is the strict mode a project opts
+     * into (`.dsh`-side file, one id per line).
+     */
+    approvers?: string[];
+    /** Every decision/refusal is reported here (JSONL ledger in the plugin). */
+    onDecision?: (entry: ApprovalLedgerEntry) => void;
+    /** Reply into the chat (answering an unauthorised or stale click). */
+    respond?: (text: string) => Promise<unknown>;
+    /** Deliver one approval artifact. */
+    sendFile?: (file: {
+        path: string;
+        name?: string;
+    }) => Promise<{
+        ok: boolean;
+        error?: string;
+    }>;
+    /** Send the artifacts named in the context block (default true when sendFile exists). */
+    sendArtifacts?: boolean;
+    /** Offer "始终允许" (command approvals only). */
+    allowAlways?: boolean;
+    /**
+     * Accept ONLY nonce-bound card clicks. A typed `yes`/`同意` then no longer
+     * decides anything (it is answered and recorded as `text-rejected`), which is
+     * what the replay-protection story promises. Default false keeps the
+     * historical behaviour where a typed answer still works.
+     */
+    requireTokenClick?: boolean;
+}
+export declare function askViaChannel(opts: AskViaChannelOptions, cmd: string, signal?: AbortSignal): Promise<AnswerDecision | null>;

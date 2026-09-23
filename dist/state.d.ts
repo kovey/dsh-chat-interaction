@@ -18,6 +18,14 @@ export declare function statePaths(channel: string, cwd?: string, cfg?: {
     p2pChat: string;
     modeFile: string;
     allowlist: string;
+    /**
+     * Who may answer an approval card (one platform user id per line).
+     * Empty file + `requireApproverList: false` = anyone in the bound chat,
+     * which is the historical behaviour; a filled list restricts it.
+     */
+    approvers: string;
+    /** Append-only JSONL of every approval decision (who/when/which card). */
+    approvalLedger: string;
     cardStore: string;
     globalActiveChat: string;
     /** Downloaded inbound images — per project AND per channel. */

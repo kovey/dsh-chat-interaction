@@ -5,6 +5,27 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## 未发布 — IM 审批（P0–P3）
+
+与工程套件的 `approval` 接缝对接，让规格审批 / 交付审核 / 规范放宽 / 新增依赖都能在 IM 上完成：
+
+- **卡片按钮带一次性 token**（`approve:<nonce>`）：转发的卡与上一轮的旧卡点击都不能复用（记 `stale-click`，不消费当前卡）；
+  纯文本回答（`yes`/`同意`…）默认仍被接受以保持兼容，需要"只认按钮点击"时打开
+  `permission.requireTokenClick: true`（此后文本回答记 `text-rejected` 并回一句提示，不参与决策）；
+- **项目级审批人名单**（`permission.requireApproverList` + `<project>/.dsh/<channel>-approvers.txt`）：
+  名单外的人点击不生效、会被回一句"无权限"，且不消费这张卡；
+- **沉默不是同意**：通道发起的任务在超时/发送失败时返回 `{decision:'cancelled'}`（不再 `next()` 落到别的应答者）；
+  非本通道发起的任务保持 `next()`，交给原来的界面回答；
+- **决策带溯源**：返回 `{decision, by, messageId, at, source:'im'}`，套件把 `by` 写进规格审批与交付回执；
+- **结构化卡片**：解析理由里的 ```approval-context``` 块（kind/mission/revision/facts/artifacts）渲染字段，
+  而不是把整段散文贴进卡片；纯文本应答者仍只看到 prose；
+- **材料随卡送达**：`ChannelAdapter.sendFile`（飞书：上传文件后发文件消息）把需求文档等发给审批人；
+- **决定落账**：每个决定与拒绝都写一行 `<project>/.dsh/<channel>-approvals.jsonl`（谁/何时/哪张卡/哪个 token）。
+- **审批材料路径受限**：`artifacts` 解析为绝对路径并做 realpath 包含校验，必须落在项目工作区内，
+  越界（绝对路径、`../` 逃逸、指向外部的符号链接）一律拒绝并记 warn —— 材料清单来自审批载荷，
+  不能让模型诱导把 `~/.dsh/feishu-app.json` 这类工作区外文件发进聊天；
+- **记账含来源**：ledger 每行补 `via: click | text`，区分按钮点击与文本作答（严格模式下的 `text-rejected` 也落账）。
+
 ## [0.1.4] - 2026-09-22
 
 ### 修复

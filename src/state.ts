@@ -71,6 +71,14 @@ export function statePaths(channel: string, cwd = process.cwd(), cfg: { cardStor
         p2pChat: path.join(proj, `${channel}-last-p2p-chat.txt`),
         modeFile: path.join(proj, `${channel}-permission-mode.txt`),
         allowlist: path.join(proj, `${channel}-permission-allowlist.txt`),
+        /**
+         * Who may answer an approval card (one platform user id per line).
+         * Empty file + `requireApproverList: false` = anyone in the bound chat,
+         * which is the historical behaviour; a filled list restricts it.
+         */
+        approvers: path.join(proj, `${channel}-approvers.txt`),
+        /** Append-only JSONL of every approval decision (who/when/which card). */
+        approvalLedger: path.join(proj, `${channel}-approvals.jsonl`),
         cardStore: expandHome(cfg.cardStoreDir || `~/.dsh/${channel}-cards`),
         globalActiveChat: path.join(dshHome(), `${channel}-active-chat.txt`),
         /** Downloaded inbound images — per project AND per channel. */

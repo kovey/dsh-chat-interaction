@@ -9,6 +9,10 @@ export interface LarkClientLike {
             message?: {
                 create(opts: unknown): Promise<unknown>;
             };
+            /** File upload for approval artifacts (`sendFile`). */
+            file?: {
+                create(opts: unknown): Promise<unknown>;
+            };
         };
     };
     request?(opts: {
@@ -89,6 +93,7 @@ export declare class FeishuChannel extends BaseChannel {
         cards: boolean;
         richText: boolean;
         images: boolean;
+        files: boolean;
         inbound: boolean;
     };
     private readonly cfg;
@@ -114,6 +119,17 @@ export declare class FeishuChannel extends BaseChannel {
     private stashCard;
     sendText(chatId: string, text: string): Promise<SendResult>;
     sendRichText(chatId: string, title: string, body: string): Promise<SendResult>;
+    /**
+     * Upload a local file and send it as a file message.
+     *
+     * Used by the approval flow to deliver what a human is being asked to review
+     * (the specification, the test design, a coverage detail): a card can only
+     * carry so much markdown, and an approval "by summary" is not an approval.
+     */
+    sendFile(chatId: string, file: {
+        path: string;
+        name?: string;
+    }): Promise<SendResult>;
     sendCard(chatId: string, card: CardSpec): Promise<SendResult>;
     dispose(): void;
 }

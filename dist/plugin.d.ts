@@ -56,6 +56,22 @@ export interface PluginConfig {
         answerTimeoutMs?: number;
         /** L3: route ALL harness approval asks to channel cards (headless 24×7); default off. */
         bridgeHarnessApproval?: boolean;
+        /**
+         * Require the clicker to be on the project's approver list
+         * (`<project>/.dsh/<channel>-approvers.txt`, one platform user id per line).
+         * Default false = anyone in the bound chat may decide, which is the
+         * historical behaviour; a 24×7 service should turn this on.
+         */
+        requireApproverList?: boolean;
+        /** Deliver the artifacts an approval card names (default true when the channel supports files). */
+        sendApprovalArtifacts?: boolean;
+        /**
+         * Accept ONLY nonce-bound card clicks as approval answers (default false).
+         * With it on, a typed `yes`/`同意` is answered and recorded as
+         * `text-rejected` but never decides — turn it on when the replay story
+         * must be literally true.
+         */
+        requireTokenClick?: boolean;
     };
     channels?: {
         feishu?: FeishuChannelConfig & ChannelEntryConfig;
@@ -103,6 +119,9 @@ export interface ResolvedPluginConfig {
         activeWindowMs: number;
         answerTimeoutMs: number;
         bridgeHarnessApproval: boolean;
+        requireApproverList: boolean;
+        sendApprovalArtifacts: boolean;
+        requireTokenClick: boolean;
     };
 }
 export declare function resolvePluginConfig(raw?: PluginConfig): ResolvedPluginConfig;

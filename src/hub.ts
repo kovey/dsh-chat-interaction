@@ -203,6 +203,18 @@ export class InteractionHub {
         return ch.sendRichText(chatId, title, String(body ?? ''))
     }
 
+    /**
+     * Deliver a local file (approval artifacts). Channels without the capability
+     * answer `ok: false` — the caller decides whether text is enough.
+     */
+    async sendFile(channel: string, chatId: string, file: { path: string; name?: string }): Promise<SendResult> {
+        if (!chatId) return { ok: false, error: 'no chat recorded for the file delivery' }
+        this.markSuccess()
+        const ch = this.requireChannel(channel)
+        if (!ch.sendFile) return { ok: false, error: `channel ${channel} does not support files` }
+        return ch.sendFile(chatId, file)
+    }
+
     async sendCard(channel: string, chatId: string, card: CardSpec): Promise<SendResult> {
         this.markSuccess()
         const ch = this.requireChannel(channel)
@@ -327,6 +339,7 @@ export class InteractionHub {
                         text: msg.text,
                         messageId: msg.messageId || '',
                         isCardAction: !!msg.isCardAction,
+                        ...(msg.senderId ? { senderId: msg.senderId } : {}),
                     })
                     return
                 }

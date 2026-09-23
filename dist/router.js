@@ -58,6 +58,8 @@ export function resolveRouterConfig(raw) {
 // ---------------------------------------------------------------------------
 const OPTION_LETTER_RE = /^[a-dA-D]$/;
 const CONFIRM_WORDS_RE = /^(全自动|auto|需审批|manual|审批|同意|确认|yes|no|不|取消|cancel|撤回|算了|全部采纳推荐方案|all|全采纳|always|始终同意)$/i;
+/** Nonce-bound card answers: `approve:<nonce>` / `reject:<nonce>` / `always:<nonce>`. */
+const TOKEN_ANSWER_RE = /^(approve|reject|always):[A-Za-z0-9_-]{4,64}$/i;
 const EXPLICIT_CMD_RE = /^(git|npm|npx|node|pnpm|yarn|php|composer|python[0-9.]*|ls|pwd|cat|head|tail|grep|find|wc|df|du|ps|date|echo|which|whoami)\s/;
 const SAFE_PREFIX_RE = /^(git\s+(status|log|diff|branch|show|stash|pull|remote)(\s|$)|ls(\s|$)|find\s|cat\s|head\s|tail\s|wc\s|grep\s|pwd\s*$|whoami\s*$|df\s|du\s|uptime\s*$|free\s|ps\s|date\s*$|date\s|node\s--version|npm\s--version|pnpm\s--version|echo\s)/i;
 const FORBIDDEN_RE = [
@@ -89,7 +91,10 @@ export function classifyByRules(msg, hasPending) {
     if (msg.chatType === 'group' && msg.isBotMentioned && BUG_REPORT_KEYWORD_RE.test(text)) {
         return { mode: 'bugfix', confidence: 0.9, reasoning: '群聊@机器人报错' };
     }
-    if (OPTION_LETTER_RE.test(text) || (text.length <= 12 && CONFIRM_WORDS_RE.test(text))) {
+    // Approval cards carry a one-shot token (`approve:<nonce>`): the answer is
+    // still an answer, so it must not fall through to "new task" classification —
+    // that happens when a card is clicked after its request expired.
+    if (OPTION_LETTER_RE.test(text) || TOKEN_ANSWER_RE.test(text) || (text.length <= 12 && CONFIRM_WORDS_RE.test(text))) {
         return { mode: 'confirmation', confidence: 0.7, reasoning: '短回复, 疑似回答确认问题' };
     }
     const explicit = text.split(/[\n;]+/).map((s) => s.trim()).filter((s) => EXPLICIT_CMD_RE.test(s));
