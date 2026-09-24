@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-interaction",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Abstract interaction layer between DeepSeek Harness (DSH) and IM platforms (Feishu, WeCom, ...). Channel-agnostic hub with proven interaction patterns (dedupe, instant ack, wait-reply, followup wakeup, scoring-based model routing, approval gate) plus pluggable adapters for Feishu and WeCom.",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,8 @@
     "examples/",
     "cordis.patch.yml",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "UPGRADE.md"
   ],
   "license": "Apache-2.0",
   "engines": {
@@ -55,24 +56,25 @@
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "clean": "rm -rf dist dist-test",
-    "test": "npm run build && npm run build:test && node --test dist-test/test/*.test.js",
-    "prepack": "npm run clean && npm run build"
+    "test": "tsc -p tsconfig.json && tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "prepack": "rm -rf dist dist-test && tsc -p tsconfig.json"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1"
+    "@deepseek-ai/dsh-agent": "^0.1.5-rc.1 || ^0.1.7-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1 || ^0.1.7-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.7-rc.1"
   },
   "optionalDependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
     "@wecom/crypto": "^1.0.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-llm": "0.1.5-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.5-rc.1",
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-agent": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-user-approval": "0.1.7-rc.1",
     "@types/node": "^24.0.0",
     "typescript": "^5.5.0"
   }

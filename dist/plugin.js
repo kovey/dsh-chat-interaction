@@ -461,10 +461,25 @@ function applyInner(ctx, config, artifacts) {
     }, { bridgeHarnessApproval: cfg.permission.bridgeHarnessApproval });
     // ---- teardown -----------------------------------------------------------
     let tornDown = false;
+    /**
+     * Signal handlers registered by THIS apply, so teardown can remove them.
+     * dsh 0.1.7 ships `dsh-hmr`: a plugin may be unloaded and re-applied in the
+     * same process. Without removal every reload would leak a pair of handlers
+     * (Node's max-listener warning) that keep an orphaned hub/lease alive and
+     * fire a second teardown on Ctrl-C.
+     */
+    const signalHandlers = [];
     const teardown = () => {
         if (tornDown)
             return;
         tornDown = true;
+        for (const [sig, handler] of signalHandlers) {
+            try {
+                process.removeListener(sig, handler);
+            }
+            catch { /* best effort */ }
+        }
+        signalHandlers.length = 0;
         hub.teardown();
         for (const lease of leases.values())
             lease.dispose(); // stop heartbeats + release
@@ -474,8 +489,10 @@ function applyInner(ctx, config, artifacts) {
     bridge.onDispose(teardown);
     if (typeof process !== 'undefined' && typeof process.on === 'function') {
         for (const sig of ['SIGINT', 'SIGTERM']) {
+            const handler = () => teardown();
             try {
-                process.once(sig, teardown);
+                process.once(sig, handler);
+                signalHandlers.push([sig, handler]);
             }
             catch { /* best effort */ }
         }

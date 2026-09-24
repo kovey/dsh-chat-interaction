@@ -203,20 +203,17 @@ export function setupAuthorization(harness, deps, cfg = {}) {
                     // answer is "cancelled" — silence is not consent, and falling
                     // through would let another answerer approve by default. A task
                     // started elsewhere is left to that surface.
-                    if (originated)
-                        return { decision: 'cancelled', source: 'im', at: Date.now() };
+                    if (originated) {
+                        deps.log('info', `approval bridge: no decision for a channel-originated task → cancelled${req.callId ? ` (call ${String(req.callId).slice(0, 12)})` : ''}`);
+                        return 'cancelled';
+                    }
                     return next();
                 }
-                if (r.decision === 'deny') {
-                    return { decision: 'rejected', ...(r.by ? { by: r.by } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), at: r.at ?? Date.now(), source: 'im' };
-                }
-                return {
-                    decision: 'allowed-once',
-                    ...(r.by ? { by: r.by } : {}),
-                    ...(r.messageId ? { messageId: r.messageId } : {}),
-                    at: r.at ?? Date.now(),
-                    source: 'im',
-                };
+                // Only an outcome may cross this seam (see HarnessApprovalReply):
+                // provenance goes to our ledger + this log line instead.
+                const outcome = r.decision === 'deny' ? 'rejected' : 'allowed-once';
+                deps.log('info', `approval bridge: ${outcome} by=${r.by ?? 'unknown'} message=${r.messageId ?? '-'} via=${r.via ?? '-'}`);
+                return outcome;
             }
             catch (e) {
                 deps.log('error', 'approval bridge error:', e.message);
@@ -314,6 +311,12 @@ export async function askViaChannel(opts, cmd, signal) {
             messageId: ans.messageId,
             via: parsed.nonce !== undefined ? 'click' : 'text',
         });
-        return { ...parsed, by: ans.senderId, messageId: ans.messageId, at: Date.now() };
+        return {
+            ...parsed,
+            by: ans.senderId,
+            messageId: ans.messageId,
+            at: Date.now(),
+            via: parsed.nonce !== undefined ? 'click' : 'text',
+        };
     }
 }

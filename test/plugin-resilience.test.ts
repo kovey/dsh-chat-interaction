@@ -237,3 +237,40 @@ test('inject-strict host ctx without services: still no throw, layer disabled', 
     assert.ok(layer, 'assembles; host services simply report nothing')
     ;(layer as DshChatLayer | null)?.teardown()
 })
+
+// ---------------------------------------------------------------------------
+// HMR 就绪性（dsh 0.1.7 引入 dsh-hmr：同一进程内插件会被卸载后重新 apply）
+// ---------------------------------------------------------------------------
+
+test('HMR: 反复 apply/teardown 不累积 SIGINT/SIGTERM 处理器', () => {
+    const dir = tmpDir()
+    const base = {
+        sigint: process.listenerCount('SIGINT'),
+        sigterm: process.listenerCount('SIGTERM'),
+    }
+    const ctx = {
+        roots: () => [],
+        registerTool: () => undefined,
+        promptSection: () => undefined,
+        onDispose: () => undefined,
+    }
+    for (let i = 0; i < 3; i++) {
+        const layer = apply(ctx as never, {
+            logFile: path.join(dir, `layer-${i}.log`),
+            scoring: { enabled: false },
+            router: { enabled: false },
+            lease: { enabled: false },
+            channels: { probe: {} },
+            channelFactories: { probe: () => new ProbeChannel() },
+        } as never) as DshChatLayer | null
+        assert.ok(layer, `第 ${i + 1} 次 apply 应成功（热重载后仍可用）`)
+        assert.equal(
+            process.listenerCount('SIGINT'),
+            base.sigint + 1,
+            `每次 apply 恰好注册一个 SIGINT 处理器（第 ${i + 1} 次）`
+        )
+        layer.teardown()
+        assert.equal(process.listenerCount('SIGINT'), base.sigint, 'teardown 后不残留 SIGINT 处理器')
+        assert.equal(process.listenerCount('SIGTERM'), base.sigterm, 'teardown 后不残留 SIGTERM 处理器')
+    }
+})

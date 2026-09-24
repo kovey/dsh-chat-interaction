@@ -22,6 +22,12 @@ import { BaseChannel } from '../src/channel.js'
 import type { SendResult } from '../src/types.js'
 import type { ApprovalDeps, ApprovalHarness } from '../src/approval.js'
 
+/**
+ * 宿主允许的 outcome 集合 —— 来自 `@deepseek-ai/dsh-user-approval`
+ * （`ApprovalOutcome`，且其实现把非 outcome 的返回值归一化成 'unavailable'）。
+ */
+const HOST_OUTCOMES = ['allowed-once', 'rejected', 'cancelled', 'unavailable']
+
 const CONTEXT_REASON = [
     '规格审批（第 2 次送审）：Add health endpoint',
     '',
@@ -164,7 +170,10 @@ test('L3: silence on a channel-originated task is "cancelled", never a pass', as
         nextCalls += 1
         return 'allowed-once'
     })
-    assert.deepEqual(reply, { decision: 'cancelled', source: 'im', at: (reply as { at: number }).at })
+    // 宿主契约：approval/request 的应答必须是 ApprovalOutcome 字符串 ——
+    // 返回对象会被 dsh-user-approval 归一化成 'unavailable'（点通过也不放行）。
+    assert.equal(reply, 'cancelled', 'channel-originated silence → cancelled')
+    assert.ok(HOST_OUTCOMES.includes(reply as string), '返回值必须是合法 outcome')
     assert.equal(nextCalls, 0, 'a channel-originated task must not fall through to another answerer')
 })
 
@@ -185,8 +194,9 @@ test('L3: a pass from elsewhere is left to that surface', async () => {
 
 test('L3: an IM decision carries who and which card', async () => {
     const seen: unknown[] = []
+    const logs: string[] = []
     const deps = {
-        log: () => undefined,
+        log: (_lvl: string, ...msg: unknown[]) => void logs.push(msg.join(' ')),
         readMode: () => 'auto',
         readAllowlist: () => [],
         addAllowlist: () => true,
@@ -195,13 +205,12 @@ test('L3: an IM decision carries who and which card', async () => {
     } as unknown as ApprovalDeps
     setupAuthorization({ on: (_event, listener) => void seen.push(listener) } as ApprovalHarness, deps, { bridgeHarnessApproval: true })
     const listener = seen.at(-1) as (payload: unknown, next: () => unknown) => Promise<unknown>
-    assert.deepEqual(await listener({ toolName: 'mission_complete', agent: { id: 'a1' } }, () => 'x'), {
-        decision: 'allowed-once',
-        by: 'ou_boss',
-        messageId: 'om_9',
-        at: 42,
-        source: 'im',
-    })
+    const reply = await listener({ toolName: 'mission_complete', agent: { id: 'a1' } }, () => 'x')
+    assert.equal(reply, 'allowed-once', '放行必须是 outcome 字符串')
+    assert.ok(HOST_OUTCOMES.includes(reply as string), '返回值必须是合法 outcome')
+    // 溯源不随返回值走（会被丢弃），而是落在本插件自己的日志/账本里
+    assert.match(logs.join('\n'), /by=ou_boss/, '决策人出现在日志里')
+    assert.match(logs.join('\n'), /message=om_9/, '卡片消息 id 出现在日志里')
 })
 
 // ---------------------------------------------------------------------------

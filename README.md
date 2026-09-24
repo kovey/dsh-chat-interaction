@@ -2,12 +2,13 @@
 
 一个**抽象的交互层**：一边接入 DSH (DeepSeek Harness)，一边接入飞书、企业微信这类 IM 平台。它把 `dsh-feishu` 插件里经过验证的交互模式（去重、即时回执、wait-reply 阻塞问答、followup 唤醒、重试守卫、审批门）**平台无关化**：接飞书、接企业微信、接任何新平台，都只是"实现一个适配器 + 一段配置"，不再是为每个 IM 重写一遍插件。
 
-> 变更历史见 [CHANGELOG.md](CHANGELOG.md)。
+> 变更历史见 [CHANGELOG.md](CHANGELOG.md)；升级步骤与宿主注意事项见 [UPGRADE.md](UPGRADE.md)。
 >
-> **依赖基线：DSH v0.1.5-rc.1**（最新稳定版）。devDependencies 精确锁定
-> `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@0.1.5-rc.1` + `cordis@4.0.2`，
-> peerDependencies 声明 `^0.1.5-rc.1` 家族（宿主直接复用已装版本）。
-> 已针对 0.1.5-rc.1 的破坏性变化完成适配（见「v0.1.5-rc.1 兼容性」）。
+> **依赖基线：DSH v0.1.7-rc.1**（npm `next` 通道的最新预发布版，`latest` 仍为 0.1.5-rc.3）。
+> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@0.1.7-rc.1` + `cordis@4.0.4`；
+> peerDependencies 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1`，**两条宿主线都可用**（semver 预发布规则下
+> 单一 `^0.1.5-rc.1` 不覆盖 0.1.7-rc.1，故显式并列）。
+> 已针对 0.1.5-rc.1 与 0.1.7-rc.1 逐一核实接口（见「DSH 版本兼容性」）。
 
 ```
 ┌─────────────────────────────┐          ┌──────────────────────────────────┐
@@ -37,11 +38,11 @@
 
 ### 1. 安装（挂进 DSH）
 
-前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.5-rc.1**；飞书/企业微信应用凭证（按需）。
+前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.7-rc.1**（或 0.1.5-rc.x，两条线都支持）；飞书/企业微信应用凭证（按需）。
 
-**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1`
-+ `cordis@^4.0.2` —— 与 dsh 0.1.5-rc.1 官方宿主提供的版本一致（`dsh --version` 可确认），
-pnpm 会直接复用、不会装第二份。
+**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1 || ^0.1.7-rc.1`
++ `cordis@^4.0.2` —— 覆盖 dsh 0.1.5-rc.x 与 0.1.7-rc.x（含未来 0.1.x 稳定版），宿主装哪个都满足，
+pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本）。
 
 **平台 SDK 会自动安装**：飞书 `@larksuiteoapi/node-sdk` 与企微 `@wecom/crypto` 声明在
 `optionalDependencies`（不是 optional peer）—— 上面那条 `dsh plugin add` 会把它们一起装上，
@@ -52,8 +53,8 @@ pnpm 会直接复用、不会装第二份。
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.4）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.4
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.5）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.5
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -339,7 +340,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.3）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.4` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.5）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.5` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
@@ -554,47 +555,31 @@ class DingChannel extends BaseChannel {
 headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连、角色=service），
 你的 TUI 会话用默认 `interactive`——打开 TUI 说「连接飞书」即接管，关掉 TUI 服务自动收回。
 
-## v0.1.5-rc.1 兼容性
+## DSH 版本兼容性
 
-针对最新稳定版逐项核对与适配：
+### 0.1.7-rc.1（当前基线）与 0.1.5-rc.1
 
-| 接口 | 0.1.5-rc.1 状态 | 本层处理 |
+**逐项核实结论**（两版对照 npm 包内类型定义与实现，仓库内跑 0.1.7-rc.1 全套测试）：
+
+| 集成点 | 0.1.5-rc.1 → 0.1.7-rc.1 变化 | 本层处理 |
 |---|---|---|
-| `installModelSelection` / `ModelSelection` / `ModelSelectionRef` | 签名不变；实现新增 `agent/pre-step` 监听（注入模型切换提示） | 直接使用官方函数，新行为自动获得 |
-| `defineTool` / `createUserMessage` | 签名不变 | 直接静态引入 |
-| `agent.followup` / `agent.ctx` / `Agent.session` | 不变 | 不变 |
-| `systemPrompt.section({name, order, text})` | 不变（text 可为函数） | 不变 |
-| `tools/pre-execute` | `ToolExecution {name, arguments, agent?, signal}`；`PreToolDecision` = allow / deny / ask | 兼容（审批门返回 allow/deny） |
-| `approval/request`（dsh-user-approval 新包） | `{agent, toolName, callId?, reason?, signal?}` → `'allowed-once' \| 'rejected' \| 'cancelled' \| 'unavailable'` | 兼容（L3 桥返回 allowed-once/rejected） |
-| `turn/end` 事件 | 信封不变（`{turn, reason}`），`reason.kind==='error'` 时 `error.code` 仍在（`LlmFailure` 新增 status/requestId 等字段） | 重试码分类照常工作 |
-| **`session.events` 数组 → `snapshotEvents()` / `eventAt()`** | **破坏性变化**（旧 dsh-feishu 的 `s.events` 读法失效） | 已适配：`session-events.ts` 优先官方 `snapshotEvents()`，回退旧 `events` 数组；重试探针与模型恢复 poller 均走该适配层 |
+| `createUserMessage`（dsh-llm） | 签名未变（新增 `createAgentMessage`） | 无需改动 |
+| `defineTool` / `validateJsonSchemaValue`（dsh-tools） | 签名未变 | 无需改动（输出 schema 由官方校验器回归测试守住） |
+| `installModelSelection` / `ModelSelectionRef`（dsh-agent） | 签名未变（新增 `installModelSelectionProjection`） | 无需改动 |
+| 会话事件表面（`snapshotEvents` / `eventAt` / `ownEvents` / `firstLiveSeq`） | 签名未变 | `session-events.ts` 适配层继续生效 |
+| `approval/request` 应答契约 | **必须是 outcome 字符串**（`allowed-once`/`rejected`/`cancelled`/`unavailable`）；非 outcome 返回值一律归一化为 `'unavailable'` | **已修**：桥返回字符串，溯源改走本插件 ledger + 日志（见 CHANGELOG） |
+| `approval/asked` + `approval/decided` 审计事件 | 两版均有（写在会话流里，非 ctx 事件） | 本层的决策账本自成一路 |
+| plugin 清单字段（`dsh.runtime` / `dsh.bundle`） | 未变（新版 `dsh-plugin-manager` 仍只读这些） | 无需改动 |
+| `cordis` | 4.0.2 → **4.0.4** | devDeps 升到 4.0.4；真实 Context 集成测试全绿 |
+| **`dsh-hmr`（新增热重载）** | 插件会在同一进程内被卸载后重新 apply | **已修**：teardown 摘除本次 apply 注册的 SIGINT/SIGTERM 处理器，反复 apply/teardown 不泄漏（有测试守住） |
 
-```ts
-scoring: {
-  enabled: true,
-  evaluator: 'auto',            // 'rule' | 'model' | 'auto'(模型优先, 规则兜底)
-  model: 'deepseek-v4-flash',   // 打分用的评估模型（须在 provider 目录中声明）
-  baseURL: '', apiKey: '',      // 留空走 DEEPSEEK_BASE_URL / OPENAI_BASE_URL 环境变量
-  thresholds: { medium: 0.4, high: 0.75 },
-  models: {                     // 各档位执行模型; 未配置的档位用会话默认
-    low: 'deepseek-v4-flash',   // ← 必须是真实存在的模型 id
-    high: 'deepseek-v4-pro',
-  },
-  providers: { high: 'deepseek-official' },   // 与宿主 agent-default-model.provider 一致
-  reasoningEfforts: { high: 'high' },         // 合法值: off | low | high | max
-  annotateTurn: true,           // 回合内标注评分与模型
-  restoreOnTurnEnd: true,       // 回合结束恢复默认模型
-}
-```
+### 0.1.7-rc.1 新增的包（与插件生态相关）
 
-> **模型 id 从哪来**：宿主用它声明的目录解析模型（`~/.dsh/settings.yaml` 的
-> `llm-*: models: - id:` 列表，或适配器内置目录；例如 DeepSeek 官方适配器目前是
-> `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`）。
-> 本层会读取该目录做**守卫**：
-> - 打分档位配了不存在的模型 → 丢弃该覆盖（回合用宿主默认模型），日志 warn 一次
-> - 评估/分类模型不存在 → 直接走规则路径，不做无效模型调用
-> - reasoning effort 非 `off|low|high|max` → 丢弃该字段
-> 也就是说：**配置写错只会降级，不会把回合打挂**。
+`dsh-plugin-manager`（插件管理）、`dsh-hmr`（热重载，取代 `cordis-plugin-hmr`）、
+`dsh-agent-preset`（预设单包化）、`dsh-atomic-write`、`dsh-mcp-resources`、`dsh-skill-office`、
+`dsh-tool-workspace-dependencies`、`dsh-workflow-ptc`（取代 `dsh-workflow-worker-thread`）、
+`dsh-experimental-agent-team-profile`、`dsh-experimental-voice-input-bundle`。
+本层的 manifest（`dsh.runtime: host` + `dsh.bundle.patch`）与这些新包的要求一致，无需新增字段。
 
 ## 完整配置（apply / cordis.patch.yml 的 config）
 
@@ -691,7 +676,7 @@ src/
     feishu.ts         飞书适配器（WS + API + 卡片重建 + 图片落地）
     wecom.ts          企业微信适配器（回调服务器/feed + API + 任务卡映射）
 
-  # —— DSH 绑定半边（dsh-chat-interaction/plugin, 官方运行时 API @0.1.5-rc.1）——
+  # —— DSH 绑定半边（dsh-chat-interaction/plugin, 官方运行时 API @0.1.7-rc.1）——
   plugin.ts           apply() 插件入口：把以上全部组装起来
   plugin-entry.ts     /plugin 入口 (re-export apply/DshBridge/ModelSelectionManager)
   harness.ts          DshBridge: 官方 createUserMessage/defineTool + agent.followup
@@ -701,8 +686,8 @@ src/
 ## 开发
 
 ```sh
-pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.5-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为可选 peer
-npm test          # build + 160 项测试 (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
+pnpm install      # 与 DSH 宿主同款包管理器; dsh 0.1.7-rc.1 官方包为 devDeps(编译+真实测试), 平台 SDK 为 optionalDependencies
+pnpm test         # build + 190 项测试（脚本直接调 tsc/node，不经过 npm） (hub 管线 / 路由自治与安全层 / 打分与官方模型切换 / 0.1.5 会话事件适配 / cordis 宿主集成 / 审批门 / 飞书解析 / 企微加解密与解析 / 整层集成)
 npm run build     # 产物在 dist/
 ```
 

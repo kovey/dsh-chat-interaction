@@ -60,6 +60,8 @@ export interface AnswerDecision {
     at?: number
     /** The one-shot token the card carried, when it was a button click. */
     nonce?: string
+    /** How the answer arrived (a nonce-bound click vs a typed reply). */
+    via?: 'click' | 'text'
 }
 
 /** The fence the engineering suite uses to embed machine-readable fields. */
@@ -242,11 +244,19 @@ export interface ApprovalRequestPayload {
     signal?: AbortSignal
 }
 
-/** Decisions this plugin returns to the harness approval seam (see the suite's contract). */
-export type HarnessApprovalReply =
-    | 'allowed-once'
-    | 'rejected'
-    | { decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'; by?: string; messageId?: string; at?: number; source?: string }
+/**
+ * What an `approval/request` answerer MUST return: one of the host's four
+ * outcomes.
+ *
+ * Returning an object (e.g. `{decision, by, messageId}`) is NOT supported:
+ * `dsh-user-approval` normalizes any non-outcome value —
+ * `OUTCOMES.includes(outcome) ? outcome : 'unavailable'` (identical in
+ * 0.1.5-rc.1 and 0.1.7-rc.1) — so a rich object silently turns the user's
+ * "approve" into a fail-closed denial. Decision provenance therefore travels
+ * through this plugin's own ledger (`<项目>/.dsh/<渠道>-approvals.jsonl`) and a
+ * log line, never through the return value.
+ */
+export type HarnessApprovalReply = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'
 
 export interface ApprovalDeps {
     log: LogFn
@@ -333,19 +343,20 @@ export function setupAuthorization(
                     // answer is "cancelled" — silence is not consent, and falling
                     // through would let another answerer approve by default. A task
                     // started elsewhere is left to that surface.
-                    if (originated) return { decision: 'cancelled', source: 'im', at: Date.now() }
+                    if (originated) {
+                        deps.log('info', `approval bridge: no decision for a channel-originated task → cancelled${req.callId ? ` (call ${String(req.callId).slice(0, 12)})` : ''}`)
+                        return 'cancelled'
+                    }
                     return next()
                 }
-                if (r.decision === 'deny') {
-                    return { decision: 'rejected', ...(r.by ? { by: r.by } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), at: r.at ?? Date.now(), source: 'im' }
-                }
-                return {
-                    decision: 'allowed-once',
-                    ...(r.by ? { by: r.by } : {}),
-                    ...(r.messageId ? { messageId: r.messageId } : {}),
-                    at: r.at ?? Date.now(),
-                    source: 'im',
-                }
+                // Only an outcome may cross this seam (see HarnessApprovalReply):
+                // provenance goes to our ledger + this log line instead.
+                const outcome: HarnessApprovalReply = r.decision === 'deny' ? 'rejected' : 'allowed-once'
+                deps.log(
+                    'info',
+                    `approval bridge: ${outcome} by=${r.by ?? 'unknown'} message=${r.messageId ?? '-'} via=${r.via ?? '-'}`
+                )
+                return outcome
             } catch (e) {
                 deps.log('error', 'approval bridge error:', (e as Error).message)
                 return next()
@@ -478,6 +489,12 @@ export async function askViaChannel(opts: AskViaChannelOptions, cmd: string, sig
             messageId: ans.messageId,
             via: parsed.nonce !== undefined ? 'click' : 'text',
         })
-        return { ...parsed, by: ans.senderId, messageId: ans.messageId, at: Date.now() }
+        return {
+            ...parsed,
+            by: ans.senderId,
+            messageId: ans.messageId,
+            at: Date.now(),
+            via: parsed.nonce !== undefined ? 'click' : 'text',
+        }
     }
 }

@@ -5,7 +5,10 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
-## 未发布 — IM 审批（P0–P3）
+## [0.1.5] - 2026-09-24
+
+### 新增 —— IM 审批（P0–P3）
+
 
 与工程套件的 `approval` 接缝对接，让规格审批 / 交付审核 / 规范放宽 / 新增依赖都能在 IM 上完成：
 
@@ -14,9 +17,10 @@
   `permission.requireTokenClick: true`（此后文本回答记 `text-rejected` 并回一句提示，不参与决策）；
 - **项目级审批人名单**（`permission.requireApproverList` + `<project>/.dsh/<channel>-approvers.txt`）：
   名单外的人点击不生效、会被回一句"无权限"，且不消费这张卡；
-- **沉默不是同意**：通道发起的任务在超时/发送失败时返回 `{decision:'cancelled'}`（不再 `next()` 落到别的应答者）；
+- **沉默不是同意**：通道发起的任务在超时/发送失败时返回 `'cancelled'`（不再 `next()` 落到别的应答者）；
   非本通道发起的任务保持 `next()`，交给原来的界面回答；
-- **决策带溯源**：返回 `{decision, by, messageId, at, source:'im'}`，套件把 `by` 写进规格审批与交付回执；
+- **决策带溯源**：`by` / `messageId` / `at` / `via` 落在 `<项目>/.dsh/<渠道>-approvals.jsonl` 与日志里
+  （宿主 `approval/request` 只接受 outcome 字符串，元数据无法随返回值传递）；
 - **结构化卡片**：解析理由里的 ```approval-context``` 块（kind/mission/revision/facts/artifacts）渲染字段，
   而不是把整段散文贴进卡片；纯文本应答者仍只看到 prose；
 - **材料随卡送达**：`ChannelAdapter.sendFile`（飞书：上传文件后发文件消息）把需求文档等发给审批人；
@@ -25,6 +29,41 @@
   越界（绝对路径、`../` 逃逸、指向外部的符号链接）一律拒绝并记 warn —— 材料清单来自审批载荷，
   不能让模型诱导把 `~/.dsh/feishu-app.json` 这类工作区外文件发进聊天；
 - **记账含来源**：ledger 每行补 `via: click | text`，区分按钮点击与文本作答（严格模式下的 `text-rejected` 也落账）。
+
+### 适配 DSH v0.1.7-rc.1
+### 适配 DSH v0.1.7-rc.1
+
+- 依赖基线升到 **0.1.7-rc.1**（devDeps 精确锁定；`cordis` 4.0.2 → 4.0.4）；
+  `peerDependencies` 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1` —— semver 预发布规则下
+  `^0.1.5-rc.1` **不覆盖** 0.1.7-rc.1（实测匹配数为 0），必须显式并列
+- 逐项核实 0.1.5-rc.1 → 0.1.7-rc.1 的接口：`createUserMessage` / `defineTool` /
+  `validateJsonSchemaValue` / `installModelSelection` / `ModelSelectionRef` /
+  会话事件表面（`snapshotEvents` / `eventAt` / `ownEvents` / `firstLiveSeq`）**签名全部未变**；
+  plugin 清单字段（`dsh.runtime` / `dsh.bundle`）未变
+- 新版新增包（`dsh-plugin-manager` / `dsh-hmr` / `dsh-agent-preset` / `dsh-atomic-write` /
+  `dsh-mcp-resources` / `dsh-skill-office` / `dsh-tool-workspace-dependencies` /
+  `dsh-workflow-ptc` 等）不改变本层 manifest 需求
+
+### 修复
+
+- **harness 审批桥的返回值不符合宿主契约**（功能失效级）：`approval/request` 的应答必须是
+  `ApprovalOutcome` 字符串，`dsh-user-approval` 会把任何非 outcome 值归一化成 `'unavailable'`
+  （两版实现一致：`OUTCOMES.includes(outcome) ? outcome : 'unavailable'`）—— 原实现返回
+  `{decision, by, messageId, at, source}` 对象，等于**用户点"通过"也不会放行**。
+  现返回 `'allowed-once'` / `'rejected'` / `'cancelled'`；决策溯源（`by` / `messageId` / `via`）
+  改走本插件账本与日志（宿主通道无法携带元数据）。
+  **运行期核实**（不是读源码）：用真实 `ApprovalService` 分别跑 0.1.7-rc.1 与 0.1.5-rc.1 ——
+  返回富对象一律得到 `'unavailable'`（连 `approval/decided` 审计事件也记成 unavailable，即
+  "点了通过却等于无人应答"）；返回合法 outcome 字符串则原样通过。修复后的桥端到端复验：
+  点通过 → `allowed-once`、点拒绝 → `rejected`、超时 → `cancelled`。
+  新增 `test/harness-approval-contract.test.ts`（4 项，跑**真实**官方服务）与 devDep
+  `@deepseek-ai/dsh-user-approval@0.1.7-rc.1` 固化该契约
+- **热重载下的信号处理器泄漏**（dsh 0.1.7 引入 `dsh-hmr`，插件会在同一进程内被重新 apply）：
+  原先每次 apply 都 `process.once('SIGINT'/'SIGTERM')` 且 teardown 从不摘除 —— 反复重载会累积
+  处理器（Node max-listener 警告），并让旧 hub/lease 无法回收。现每次 apply 记录自己注册的
+  处理器、teardown 逐一 `removeListener`；新增测试：连续 3 次 apply/teardown 后处理器计数回到基线
+
+
 
 ## [0.1.4] - 2026-09-22
 
@@ -154,6 +193,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.1.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.5
 [0.1.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.4
 [0.1.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.3
 [0.1.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.2

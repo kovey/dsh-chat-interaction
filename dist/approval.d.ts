@@ -44,6 +44,8 @@ export interface AnswerDecision {
     at?: number;
     /** The one-shot token the card carried, when it was a button click. */
     nonce?: string;
+    /** How the answer arrived (a nonce-bound click vs a typed reply). */
+    via?: 'click' | 'text';
 }
 /** The fence the engineering suite uses to embed machine-readable fields. */
 export declare const APPROVAL_CONTEXT_FENCE = "approval-context";
@@ -137,14 +139,19 @@ export interface ApprovalRequestPayload {
     } | null;
     signal?: AbortSignal;
 }
-/** Decisions this plugin returns to the harness approval seam (see the suite's contract). */
-export type HarnessApprovalReply = 'allowed-once' | 'rejected' | {
-    decision: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
-    by?: string;
-    messageId?: string;
-    at?: number;
-    source?: string;
-};
+/**
+ * What an `approval/request` answerer MUST return: one of the host's four
+ * outcomes.
+ *
+ * Returning an object (e.g. `{decision, by, messageId}`) is NOT supported:
+ * `dsh-user-approval` normalizes any non-outcome value —
+ * `OUTCOMES.includes(outcome) ? outcome : 'unavailable'` (identical in
+ * 0.1.5-rc.1 and 0.1.7-rc.1) — so a rich object silently turns the user's
+ * "approve" into a fail-closed denial. Decision provenance therefore travels
+ * through this plugin's own ledger (`<项目>/.dsh/<渠道>-approvals.jsonl`) and a
+ * log line, never through the return value.
+ */
+export type HarnessApprovalReply = 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable';
 export interface ApprovalDeps {
     log: LogFn;
     /** Current permission mode for the agent's project. */
