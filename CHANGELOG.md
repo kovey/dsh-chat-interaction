@@ -5,6 +5,16 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.1.6] - 2026-09-24
+
+### 修复
+
+- **`scripts/` 未随包分发**：`files` 字段遗漏 `scripts/`，而 pnpm 从 git 安装时按 `files` 过滤 ——
+  v0.1.5 的包里因此没有 `scripts/selfcheck.mjs`，但 UPGRADE.md / README 正让用户去执行它
+  （文档指向不存在的文件）。现已把 `scripts/` 纳入 `files`。
+  验证方式：`pnpm pack` 后检查 tarball 内容（本版实测 `package/scripts/selfcheck.mjs` 在其中，
+  文件总数 56）。
+
 ## [0.1.5] - 2026-09-24
 
 ### 新增 —— IM 审批（P0–P3）
@@ -193,6 +203,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.1.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.6
 [0.1.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.5
 [0.1.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.4
 [0.1.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.3

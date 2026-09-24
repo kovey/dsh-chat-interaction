@@ -15,7 +15,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.5
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.6
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -49,7 +49,8 @@ head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.
 
 | 插件版本 | 需要的宿主 | 关键内容 |
 |---|---|---|
-| **≥ 0.1.5** | 0.1.5-rc.x / **0.1.7-rc.x** | IM 审批 P0–P3、审批契约修复（真的会放行）、HMR 信号处理器修复、模型目录守卫 |
+| **≥ 0.1.6** | 0.1.5-rc.x / **0.1.7-rc.x** | 同 0.1.5，且 `scripts/selfcheck.mjs` 随包分发（v0.1.5 的包里缺该脚本） |
+| 0.1.5 | 0.1.5-rc.x / 0.1.7-rc.x | IM 审批 P0–P3、审批契约修复（真的会放行）、HMR 信号处理器修复、模型目录守卫 |
 | 0.1.4 | 0.1.5-rc.x | 平台 SDK 随插件自动安装、工具输出 schema 对齐 |
 | ≤ 0.1.3 | 0.1.5-rc.x | 无 IM 审批；审批桥点了通过也不放行；HMR 下泄漏信号处理器 |
 
