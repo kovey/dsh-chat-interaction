@@ -6,7 +6,7 @@
 
 | 你的情况 | 建议 |
 |---|---|
-| 宿主是 **DSH 0.1.7-rc.1**（含 `dsh-hmr` / `dsh-plugin-manager`） | **必须升级** —— 旧的 peer 声明 `^0.1.5-rc.1` 在 semver 预发布规则下**不覆盖** 0.1.7-rc.1（实测匹配数为 0） |
+| 宿主是 **DSH 0.1.7-rc.1 / rc.2**（含 `dsh-hmr` / `dsh-plugin-manager` / rc.2 的插件版本闸门） | **建议升级到 ≥ v0.1.7** —— v0.1.4 之前的 peer 声明 `^0.1.5-rc.1` 在 semver 预发布规则下**不覆盖** 0.1.7-rc.x（实测匹配数为 0） |
 | 用 `permission.bridgeHarnessApproval`（headless 24×7 审批桥） | **必须升级** —— v0.1.4 及更早返回的是对象，宿主会判成 `unavailable`：**点了"通过"也不放行**，且审计事件记成"无人应答" |
 | 想让规格审批 / 交付审核 / 规范放宽 / 新增依赖审批走 IM | 需要 v0.1.5（IM 审批 P0–P3 在本版发布） |
 | 只用飞书/企微消息收发，且宿主仍是 0.1.5-rc.x | 可留旧版，但升级无破坏性变更 |
@@ -15,7 +15,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.7
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.8
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -27,7 +27,7 @@ dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
 head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.5 applying; …
 ```
 
-## 宿主升到 0.1.7-rc.1 的注意事项
+## 宿主升到 0.1.7-rc.x（rc.1 / rc.2）的注意事项
 
 - `cordis` 依赖：`@deepseek-ai/cordis` 4.0.2 → **4.0.4**（本插件 peer 仍声明 `^4.0.2`，两条线都满足）
 - **包改名**（0.1.7 起）：
@@ -57,8 +57,9 @@ dsh: skipping profile bundle "<插件名>": Error: Plugin <插件名>@x.y.z is i
 ```
 
 两种处理方式：
-1. **推荐**：把插件的 peer 改成**范围**（如 `^0.1.7-rc.1`）—— 本插件就是这么声明的，因此在 rc.2 上
-   不受闸门影响（实测未被跳过，正常装配到 `ready`）；
+1. **推荐**：把插件的 peer 改成**范围**，并把被测基线显式写进去 —— 本插件声明的是
+   `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`，因此在 rc.2 上不受闸门影响（实测未被跳过，
+   正常装配到 `ready`）；
 2. 临时豁免：`dsh plugin allow-version`（精确版本豁免，属于显式接受风险）。
 
 > 现象自查：宿主启动输出里出现 `dsh: skipping profile bundle` 时，是本插件之外的问题 ——

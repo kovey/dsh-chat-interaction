@@ -5,6 +5,17 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.1.8] - 2026-09-28
+
+### 变更
+
+- **peer 显式声明 rc.2**：`@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}` 的 peer 从
+  `^0.1.5-rc.1 || ^0.1.7-rc.1` 改为 **`^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`**。
+  原范围在 semver 上已覆盖 rc.2（v0.1.7 的宿主闸门实测未跳过本插件），但清单里只写 rc.1
+  会让宿主闸门、安装器与人都无法直接看出"本版适配 rc.2" —— 现在把**被测基线显式写进清单**，
+  不再依赖预发布版本的匹配细节。覆盖实测：0.1.5-rc.1 / 0.1.5-rc.3 / 0.1.7-rc.1 / **0.1.7-rc.2** /
+  0.1.7（未来稳定版）✓，0.2.x ✗（正确排除）。README / UPGRADE 中的 peer 文本同步更新。
+
 ## [0.1.7] - 2026-09-28
 
 ### 适配 DSH v0.1.7-rc.2
@@ -217,6 +228,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.1.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.8
 [0.1.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.7
 [0.1.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.6
 [0.1.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.5

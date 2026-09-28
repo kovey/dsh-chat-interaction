@@ -6,7 +6,7 @@
 >
 > **依赖基线：DSH v0.1.7-rc.2**（npm `latest` 与 `next` 均已指向它）。
 > devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.1.7-rc.2` + `cordis@4.0.4`；
-> peerDependencies 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1`，**两条宿主线都可用**（semver 预发布规则下
+> peerDependencies 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`，**两条宿主线都可用**（semver 预发布规则下
 > 单一 `^0.1.5-rc.1` 不覆盖 0.1.7-rc.1，故显式并列）。
 > 已针对 0.1.5-rc.1 与 0.1.7-rc.1 逐一核实接口（见「DSH 版本兼容性」）。
 
@@ -40,7 +40,7 @@
 
 前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.7-rc.1**（或 0.1.5-rc.x，两条线都支持）；飞书/企业微信应用凭证（按需）。
 
-**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1 || ^0.1.7-rc.1`
+**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`
 + `cordis@^4.0.2` —— 覆盖 dsh 0.1.5-rc.x 与 0.1.7-rc.x（含未来 0.1.x 稳定版），宿主装哪个都满足，
 pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本）。
 
@@ -53,8 +53,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.7）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.7
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.8）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.8
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -340,7 +340,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.7）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.7` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.7）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.8` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
