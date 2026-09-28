@@ -5,6 +5,20 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.1.7] - 2026-09-28
+
+### 适配 DSH v0.1.7-rc.2
+
+- devDeps 升到 **0.1.7-rc.2**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）；
+  `cordis` 仍是 4.0.4。**peer 声明无需改动** —— `^0.1.7-rc.1` 已覆盖 rc.2（semver 预发布规则实测匹配）
+- 接口逐符号比对 rc.1 → rc.2：`createUserMessage`、`defineTool`、`validateJsonSchemaValue`、
+  `installModelSelection`、`snapshotEvents`、`ApprovalOutcome` **完全一致**；194/194 测试通过
+- 真机验证：真实 **0.1.7-rc.2** 宿主装配到 `dsh-chat-interaction ready`（工具注册 / 审批门 /
+  租约 / 服务导出 / teardown 全部正常），宿主输出里没有任何关于本插件的跳过或错误
+- **rc.2 新增插件版本闸门**：peer 精确锁定旧版本的插件会被宿主跳过
+  （`skipping profile bundle … is incompatible with dsh 0.1.7-rc.2`）。本插件用范围 peer
+  （`^0.1.5-rc.1 || ^0.1.7-rc.1`）天然不受影响
+
 ## [0.1.6] - 2026-09-24
 
 ### 修复
@@ -203,6 +217,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.1.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.7
 [0.1.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.6
 [0.1.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.5
 [0.1.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.4

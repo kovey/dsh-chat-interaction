@@ -1,6 +1,6 @@
 {
   "name": "dsh-chat-interaction",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Abstract interaction layer between DeepSeek Harness (DSH) and IM platforms (Feishu, WeCom, ...). Channel-agnostic hub with proven interaction patterns (dedupe, instant ack, wait-reply, followup wakeup, scoring-based model routing, approval gate) plus pluggable adapters for Feishu and WeCom.",
   "type": "module",
   "main": "./dist/index.js",
@@ -72,10 +72,10 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.4",
-    "@deepseek-ai/dsh-agent": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-llm": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.7-rc.1",
-    "@deepseek-ai/dsh-user-approval": "0.1.7-rc.1",
+    "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.1.7-rc.2",
     "@types/node": "^24.0.0",
     "typescript": "^5.5.0"
   }

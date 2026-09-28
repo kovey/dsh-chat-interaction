@@ -15,7 +15,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.6
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.7
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -45,11 +45,31 @@ head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.
   这不是本插件的问题（本插件在该日志里应显示 `dsh-chat-interaction ready`）。处理方式二选一：
   把这两行改成新包名，或**直接删掉** —— 0.1.7 宿主已自带这些包，多数 profile 无需再手动装配。
 
+## 宿主升到 0.1.7-rc.2 的注意事项（新）
+
+rc.2 引入**插件版本闸门**：插件的 `peerDependencies` 若**精确锁定**旧版本（例如 `0.1.7-rc.1`），
+宿主会直接**跳过该 bundle** 并打印：
+
+```
+dsh: skipping profile bundle "<插件名>": Error: Plugin <插件名>@x.y.z is incompatible with dsh 0.1.7-rc.2:
+  peerDependencies {"@deepseek-ai/dsh-agent":"0.1.7-rc.1", …}. Running it may cause crashes or data loss.
+  … grant the exact-version exemption … with `dsh plugin allow-version` …
+```
+
+两种处理方式：
+1. **推荐**：把插件的 peer 改成**范围**（如 `^0.1.7-rc.1`）—— 本插件就是这么声明的，因此在 rc.2 上
+   不受闸门影响（实测未被跳过，正常装配到 `ready`）；
+2. 临时豁免：`dsh plugin allow-version`（精确版本豁免，属于显式接受风险）。
+
+> 现象自查：宿主启动输出里出现 `dsh: skipping profile bundle` 时，是本插件之外的问题 ——
+> 本插件在该输出中不应出现任何行；日志里应看到 `dsh-chat-interaction ready`。
+
 ## 版本兼容矩阵
 
 | 插件版本 | 需要的宿主 | 关键内容 |
 |---|---|---|
-| **≥ 0.1.6** | 0.1.5-rc.x / **0.1.7-rc.x** | 同 0.1.5，且 `scripts/selfcheck.mjs` 随包分发（v0.1.5 的包里缺该脚本） |
+| **≥ 0.1.7** | 0.1.5-rc.x / **0.1.7-rc.x（含 rc.2）** | 适配 DSH 0.1.7-rc.2（范围 peer 天然通过 rc.2 的插件版本闸门） |
+| 0.1.6 | 0.1.5-rc.x / 0.1.7-rc.x | 同 0.1.5，且 `scripts/selfcheck.mjs` 随包分发（v0.1.5 的包里缺该脚本） |
 | 0.1.5 | 0.1.5-rc.x / 0.1.7-rc.x | IM 审批 P0–P3、审批契约修复（真的会放行）、HMR 信号处理器修复、模型目录守卫 |
 | 0.1.4 | 0.1.5-rc.x | 平台 SDK 随插件自动安装、工具输出 schema 对齐 |
 | ≤ 0.1.3 | 0.1.5-rc.x | 无 IM 审批；审批桥点了通过也不放行；HMR 下泄漏信号处理器 |

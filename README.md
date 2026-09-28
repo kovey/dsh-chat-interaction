@@ -4,8 +4,8 @@
 
 > 变更历史见 [CHANGELOG.md](CHANGELOG.md)；升级步骤与宿主注意事项见 [UPGRADE.md](UPGRADE.md)。
 >
-> **依赖基线：DSH v0.1.7-rc.1**（npm `next` 通道的最新预发布版，`latest` 仍为 0.1.5-rc.3）。
-> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@0.1.7-rc.1` + `cordis@4.0.4`；
+> **依赖基线：DSH v0.1.7-rc.2**（npm `latest` 与 `next` 均已指向它）。
+> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.1.7-rc.2` + `cordis@4.0.4`；
 > peerDependencies 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1`，**两条宿主线都可用**（semver 预发布规则下
 > 单一 `^0.1.5-rc.1` 不覆盖 0.1.7-rc.1，故显式并列）。
 > 已针对 0.1.5-rc.1 与 0.1.7-rc.1 逐一核实接口（见「DSH 版本兼容性」）。
@@ -53,8 +53,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.6）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.6
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.7）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.7
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -340,7 +340,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.5）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.6` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.7）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.7` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
@@ -557,7 +557,7 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 
 ## DSH 版本兼容性
 
-### 0.1.7-rc.1（当前基线）与 0.1.5-rc.1
+### 0.1.7-rc.2（当前基线）与 0.1.5-rc.1
 
 **逐项核实结论**（两版对照 npm 包内类型定义与实现，仓库内跑 0.1.7-rc.1 全套测试）：
 
@@ -570,8 +570,19 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 | `approval/request` 应答契约 | **必须是 outcome 字符串**（`allowed-once`/`rejected`/`cancelled`/`unavailable`）；非 outcome 返回值一律归一化为 `'unavailable'` | **已修**：桥返回字符串，溯源改走本插件 ledger + 日志（见 CHANGELOG） |
 | `approval/asked` + `approval/decided` 审计事件 | 两版均有（写在会话流里，非 ctx 事件） | 本层的决策账本自成一路 |
 | plugin 清单字段（`dsh.runtime` / `dsh.bundle`） | 未变（新版 `dsh-plugin-manager` 仍只读这些） | 无需改动 |
-| `cordis` | 4.0.2 → **4.0.4** | devDeps 升到 4.0.4；真实 Context 集成测试全绿 |
+| `cordis` | 4.0.2 → **4.0.4**（rc.2 未变） | devDeps 升到 4.0.4；真实 Context 集成测试全绿 |
+| **插件版本闸门（rc.2 新增）** | 宿主会**拒绝加载** peer 精确锁定旧版本的插件（`skipping profile bundle … is incompatible with dsh 0.1.7-rc.2`），可用 `dsh plugin allow-version` 显式豁免 | 本插件的 peer 是**范围**（`^0.1.5-rc.1 \|\| ^0.1.7-rc.1`），天然覆盖 rc.2 —— 实测在 rc.2 宿主里未被跳过，日志走完 `… ready` |
 | **`dsh-hmr`（新增热重载）** | 插件会在同一进程内被卸载后重新 apply | **已修**：teardown 摘除本次 apply 注册的 SIGINT/SIGTERM 处理器，反复 apply/teardown 不泄漏（有测试守住） |
+
+### 0.1.7-rc.2 的变化
+
+相对 rc.1：全家族包统一升到 rc.2（74 个），新增实验包 `dsh-experimental-auto-review`，无移除；
+`cordis` 等非 dsh 依赖未变。**接口逐符号比对：`createUserMessage` / `defineTool` /
+`validateJsonSchemaValue` / `installModelSelection` / `snapshotEvents` / `ApprovalOutcome` 完全一致**，
+本插件在 rc.2 宿主上真机装配到 `ready`（194/194 测试同样通过）。
+
+新增的**插件版本闸门**值得注意：peer 若写成精确版本（如 `0.1.7-rc.1`），rc.2 会直接跳过该 bundle；
+写范围（本插件的做法）或对具体插件执行 `dsh plugin allow-version` 才能加载。
 
 ### 0.1.7-rc.1 新增的包（与插件生态相关）
 
