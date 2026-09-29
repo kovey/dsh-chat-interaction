@@ -4,11 +4,10 @@
 
 > 变更历史见 [CHANGELOG.md](CHANGELOG.md)；升级步骤与宿主注意事项见 [UPGRADE.md](UPGRADE.md)。
 >
-> **依赖基线：DSH v0.1.7-rc.2**（npm `latest` 与 `next` 均已指向它）。
-> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.1.7-rc.2` + `cordis@4.0.4`；
-> peerDependencies 声明 `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`，**两条宿主线都可用**（semver 预发布规则下
-> 单一 `^0.1.5-rc.1` 不覆盖 0.1.7-rc.1，故显式并列）。
-> 已针对 0.1.5-rc.1 与 0.1.7-rc.1 逐一核实接口（见「DSH 版本兼容性」）。
+> **依赖基线：DSH v0.2.0-rc.1**（npm `next` 通道；`latest` 仍为 0.1.7-rc.2）。
+> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.2.0-rc.1`
+> + `cordis@4.0.4`；peerDependencies 声明 **`^0.2.0-rc.1`** —— 本版**只支持 0.2.0 线**
+> （0.2.0-rc.1 及以后）。需要 0.1.x 宿主请用 v0.1.8 及更早版本。
 
 ```
 ┌─────────────────────────────┐          ┌──────────────────────────────────┐
@@ -40,8 +39,8 @@
 
 前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.7-rc.1**（或 0.1.5-rc.x，两条线都支持）；飞书/企业微信应用凭证（按需）。
 
-**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`
-+ `cordis@^4.0.2` —— 覆盖 dsh 0.1.5-rc.x 与 0.1.7-rc.x（含未来 0.1.x 稳定版），宿主装哪个都满足，
+**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.2.0-rc.1`
++ `cordis@^4.0.2` —— 覆盖 0.2.0-rc.1、0.2.0 及未来 0.2.x（不覆盖 0.3.x）；宿主装哪个都满足，
 pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本）。
 
 **平台 SDK 会自动安装**：飞书 `@larksuiteoapi/node-sdk` 与企微 `@wecom/crypto` 声明在
@@ -53,8 +52,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.1.8）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.1.8
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.2.0）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.2.0
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -340,13 +339,15 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.1.7）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.1.8` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.2.0` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
 | 插件"没反应" | 这是预期：**默认不连接**。要么明确让 agent 连接，要么把 config 里 `role` 设为 `listener`（部署决策） |
 | 命令没被执行 | 命中 router 安全层（如 `git push`）→ 已转交 agent 走审批；日志有 `安全层未直接执行` |
 | 打分/闲聊没有模型参与 | 未配置 `DEEPSEEK_API_KEY`/`BASE_URL` → 自动回落纯规则（功能不受影响） |
+| 宿主报 `incompatible-version`（插件被跳过） | 宿主与本版 peer 不匹配：升 dsh 到 ≥ 0.2.0-rc.1，或改用对应插件版本（旧宿主用 v0.1.8）；确需混搭见 [UPGRADE.md](UPGRADE.md) 的豁免流程 |
+| 想确认插件配置项是否注册 | `dsh --profile <p> --dump-config-schema \| grep -A 30 chatInteraction`（不挂载插件即可看 schema） |
 | 日志出现 `model routing: ignoring override — model "xxx" is not in ...` | 配置里的模型 id 不存在：按提示的 available 列表改成真实 id（或用 `dsh` 的 /model 查看目录） |
 
 ### 6. 本地自检（排查挂载问题）
@@ -557,40 +558,48 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 
 ## DSH 版本兼容性
 
-### 0.1.7-rc.2（当前基线）与 0.1.5-rc.1
+### 支持基线：DSH 0.2.0-rc.1（本版唯一支持线）
 
-**逐项核实结论**（两版对照 npm 包内类型定义与实现，仓库内跑 0.1.7-rc.1 全套测试）：
+**破坏性说明**：v0.2.0 起，本插件只声明 `^0.2.0-rc.1` —— 在 0.1.5-rc.x / 0.1.7-rc.x 宿主上
+会因 peer 不满足而被插件版本闸门拒绝（`incompatible-version`）。需要旧宿主请继续用 **v0.1.8**。
 
-| 集成点 | 0.1.5-rc.1 → 0.1.7-rc.1 变化 | 本层处理 |
+**逐项核实结论**（对照 0.1.7-rc.2 与 0.2.0-rc.1 的包内类型定义 + 真机启动）：
+
+| 集成点 | 0.1.7-rc.2 → 0.2.0-rc.1 | 本层处理 |
 |---|---|---|
-| `createUserMessage`（dsh-llm） | 签名未变（新增 `createAgentMessage`） | 无需改动 |
-| `defineTool` / `validateJsonSchemaValue`（dsh-tools） | 签名未变 | 无需改动（输出 schema 由官方校验器回归测试守住） |
-| `installModelSelection` / `ModelSelectionRef`（dsh-agent） | 签名未变（新增 `installModelSelectionProjection`） | 无需改动 |
-| 会话事件表面（`snapshotEvents` / `eventAt` / `ownEvents` / `firstLiveSeq`） | 签名未变 | `session-events.ts` 适配层继续生效 |
-| `approval/request` 应答契约 | **必须是 outcome 字符串**（`allowed-once`/`rejected`/`cancelled`/`unavailable`）；非 outcome 返回值一律归一化为 `'unavailable'` | **已修**：桥返回字符串，溯源改走本插件 ledger + 日志（见 CHANGELOG） |
-| `approval/asked` + `approval/decided` 审计事件 | 两版均有（写在会话流里，非 ctx 事件） | 本层的决策账本自成一路 |
-| plugin 清单字段（`dsh.runtime` / `dsh.bundle`） | 未变（新版 `dsh-plugin-manager` 仍只读这些） | 无需改动 |
-| `cordis` | 4.0.2 → **4.0.4**（rc.2 未变） | devDeps 升到 4.0.4；真实 Context 集成测试全绿 |
-| **插件版本闸门（rc.2 新增）** | 宿主会**拒绝加载** peer 精确锁定旧版本的插件（`skipping profile bundle … is incompatible with dsh 0.1.7-rc.2`），可用 `dsh plugin allow-version` 显式豁免 | 本插件的 peer 是**范围**（`^0.1.5-rc.1 \|\| ^0.1.7-rc.1`），天然覆盖 rc.2 —— 实测在 rc.2 宿主里未被跳过，日志走完 `… ready` |
-| **`dsh-hmr`（新增热重载）** | 插件会在同一进程内被卸载后重新 apply | **已修**：teardown 摘除本次 apply 注册的 SIGINT/SIGTERM 处理器，反复 apply/teardown 不泄漏（有测试守住） |
+| 顶层导出（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval） | **零增删** | 无需改动 |
+| `createUserMessage` / `defineTool` / `validateJsonSchemaValue` / `installModelSelection` / `ModelSelectionRef` | 签名完全一致 | 无需改动 |
+| 会话事件表面（`snapshotEvents` / `eventAt` / `ownEvents` / `firstLiveSeq`）与事件清单 | 完全一致 | `session-events.ts` 适配层继续生效 |
+| `approval/request` 应答契约（`ApprovalOutcome` 字符串）与 `approval/asked`+`approval/decided` 审计对 | 完全一致 | 契约测试跑**真实** 0.2.0-rc.1 服务，194/194 通过 |
+| 插件 manifest 字段（`dsh.runtime` / `dsh.bundle`） | 未变（`dsh-plugin-manager` 仍只读这些） | 无需改动 |
+| `cordis` | 4.0.4（未变） | 真实 Context 集成测试全绿 |
+| 唯一新增 API | `dsh-session` 的 `ToolCallRecovery`（宿主内部的工具调用恢复） | 不构成插件扩展点 |
 
-### 0.1.7-rc.2 的变化
+### 0.2.0-rc.1 的新能力（本插件如何配合）
 
-相对 rc.1：全家族包统一升到 rc.2（74 个），新增实验包 `dsh-experimental-auto-review`，无移除；
-`cordis` 等非 dsh 依赖未变。**接口逐符号比对：`createUserMessage` / `defineTool` /
-`validateJsonSchemaValue` / `installModelSelection` / `snapshotEvents` / `ApprovalOutcome` 完全一致**，
-本插件在 rc.2 宿主上真机装配到 `ready`（194/194 测试同样通过）。
+**1. HMR 正式化（`dsh-hmr`）—— TUI / web profile 默认启用**
 
-新增的**插件版本闸门**值得注意：peer 若写成精确版本（如 `0.1.7-rc.1`），rc.2 会直接跳过该 bundle；
-写范围（本插件的做法）或对具体插件执行 `dsh plugin allow-version` 才能加载。
+官方文档：启动器提供 `profileContext` 时 base 组合包以 `root: []` 启用 HMR（监听 profile manifest、
+profile 与 home 级 patch 文件）；**headless / sdk / acp 组合包默认禁用**，可用 profile patch 重新启用。
+这意味着 TUI 会话里的插件会被**热重载**（卸载后重新 apply），插件必须可重入、teardown 无泄漏。
 
-### 0.1.7-rc.1 新增的包（与插件生态相关）
+本插件已是 HMR-ready：`teardown` 会停止心跳定时器、释放渠道租约、排空 hub 的 waiter 与定时器、
+恢复模型覆盖、并**摘除本次 apply 注册的 SIGINT/SIGTERM 处理器**；测试覆盖"连续 3 次 apply/teardown
+后处理器计数回到基线"。HMR 只提供 `hmr/change`、`hmr/reload`（重载**后**通知），没有重载前钩子 ——
+因此本插件不依赖任何 HMR 专有接缝，在启用/禁用 HMR 的 profile 上行为一致。
 
-`dsh-plugin-manager`（插件管理）、`dsh-hmr`（热重载，取代 `cordis-plugin-hmr`）、
-`dsh-agent-preset`（预设单包化）、`dsh-atomic-write`、`dsh-mcp-resources`、`dsh-skill-office`、
-`dsh-tool-workspace-dependencies`、`dsh-workflow-ptc`（取代 `dsh-workflow-worker-thread`）、
-`dsh-experimental-agent-team-profile`、`dsh-experimental-voice-input-bundle`。
-本层的 manifest（`dsh.runtime: host` + `dsh.bundle.patch`）与这些新包的要求一致，无需新增字段。
+**2. 插件版本兼容与豁免（`dsh-plugin-manager`）**
+
+安装与 profile 启动都会按插件声明的 DSH peer 范围检查运行时版本；不兼容时拒绝加载（错误码
+`incompatible-version`，含未满足的 `peers`）。本插件用**范围** peer，天然覆盖 0.2.0 线，无需豁免。
+确需加载不兼容插件时（例如把老插件跑在新宿主上），官方提供精确版本豁免，详见 [UPGRADE.md](UPGRADE.md)。
+
+**3. `dsh --dump-config-schema`** —— 打印组合树中插件声明的 config JSON Schema（不挂载插件），
+可用来确认本插件的配置项已正确注册：
+
+```sh
+dsh --profile <profile> --dump-config-schema | grep -A 30 chatInteraction
+```
 
 ## 完整配置（apply / cordis.patch.yml 的 config）
 

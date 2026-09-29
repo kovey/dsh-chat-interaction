@@ -5,6 +5,44 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.2.0] - 2026-09-29
+
+### 破坏性变更
+
+- **只支持 DSH 0.2.0 线**：`peerDependencies` 由 `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2`
+  收窄为 **`^0.2.0-rc.1`**（覆盖 0.2.0-rc.1、0.2.0 与未来 0.2.x；不覆盖 0.3.x）。
+  在 0.1.5-rc.x / 0.1.7-rc.x 宿主上本版会被 `dsh-plugin-manager` 的版本闸门以
+  `incompatible-version` 拒绝 —— 需要旧宿主请继续用 **v0.1.8**。
+
+### 适配 DSH v0.2.0-rc.1
+
+- devDeps 升到 0.2.0-rc.1（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval；`cordis` 仍 4.0.4）
+- 核实结论（0.1.7-rc.2 → 0.2.0-rc.1 的包内类型定义逐文件比对 + 真机启动）：
+  四个包的**顶层导出零增删**，`createUserMessage` / `defineTool` / `validateJsonSchemaValue` /
+  `installModelSelection` / `ModelSelectionRef` / 会话事件表面（`snapshotEvents` 等）/
+  审批契约（`ApprovalOutcome`）/ 插件 manifest 字段（`dsh.runtime` / `dsh.bundle`）**全部一致**；
+  唯一新增 API 是 `dsh-session` 的 `ToolCallRecovery`（宿主内部工具调用恢复，不构成插件扩展点）
+- 194/194 测试通过（含用**真实 0.2.0-rc.1 服务**跑的审批契约测试与真实 cordis Context 集成测试）
+- 真机验证：真实 0.2.0-rc.1 宿主装配到 `dsh-chat-interaction ready`
+
+### 新能力对接（宿主 0.2.0 侧）
+
+- **HMR 正式化（`dsh-hmr`）**：启动器提供 `profileContext` 时 base 以 `root: []` 启用 HMR，
+  TUI / web profile 默认开启（headless / sdk / acp 默认禁用，可用 patch 重新启用）。本插件已是
+  HMR-ready：teardown 停心跳定时器、释放渠道租约、排空 hub waiter、恢复模型覆盖、摘除本次 apply
+  注册的 SIGINT/SIGTERM 处理器；且**不依赖 HMR 专有接缝**（官方只有 `hmr/change`、`hmr/reload`
+  两个重载后事件，无重载前钩子）
+- **插件版本兼容与豁免**：本插件用**范围** peer，天然通过闸门；豁免流程记入 README / UPGRADE
+  （`dsh plugin --profile <p> version-exemptions` /
+  `allow-version <pkg@ver> --dsh-version <runtime> --accept-risk` / `revoke-version`；
+  豁免存于 profile 的 `compatibility.json`，且**插件升级与 DSH 升级都不继承**）
+- **`dsh --dump-config-schema`**：记入 README 排障 —— 不挂载插件即可检查本插件的 config schema
+
+### 测试
+
+- 新增「依赖与文档一致性守卫」：peer 只含 0.2.0 线、devDeps 等于基线、README / UPGRADE / CHANGELOG
+  中的版本引用与 `package.json` 一致（防止发版时文档漏改）
+
 ## [0.1.8] - 2026-09-28
 
 ### 变更
@@ -228,6 +266,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.2.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.0
 [0.1.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.8
 [0.1.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.7
 [0.1.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.6
