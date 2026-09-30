@@ -5,6 +5,19 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.2.1] - 2026-09-30
+
+### 适配 DSH v0.2.0-rc.2
+
+- devDeps 升到 **0.2.0-rc.2**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval；`cordis` 仍 4.0.4）
+- peer **显式覆盖 rc.1 与 rc.2**：`^0.2.0-rc.1` → **`^0.2.0-rc.1 || ^0.2.0-rc.2`** ——
+  原范围在 semver 上已覆盖 rc.2，但把被测基线显式写进清单，宿主闸门 / 安装器 / 人都能直接读到
+- 核实（rc.1 → rc.2，**纯版本滚动**）：依赖树零增删（82 → 82）、非 dsh 依赖无变化；四个包
+  **顶层导出零增删**；关键类型文件（`model-selection` / `runtime-types` / `tools types`+`schema` /
+  `user-approval types` / `session types`+`known-event-types`+`repair`+`surface`）**逐文件一致**
+- 200/200 测试通过（含用**真实 0.2.0-rc.2 服务**跑的审批契约与真实 cordis Context 集成测试）
+- 真机：真实 0.2.0-rc.2 宿主装配到 `dsh-chat-interaction ready`，宿主输出零行
+
 ## [0.2.0] - 2026-09-29
 
 ### 破坏性变更
@@ -266,6 +279,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.2.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.1
 [0.2.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.0
 [0.1.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.8
 [0.1.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.7

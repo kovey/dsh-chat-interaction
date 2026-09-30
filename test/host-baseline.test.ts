@@ -39,12 +39,12 @@ const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const upgrade = fs.readFileSync(path.join(root, 'UPGRADE.md'), 'utf8')
 
 /** 本版声明的 DSH 基线（peer 里唯一的一条 0.x 线）。 */
-const BASELINE = '0.2.0-rc.1'
+const BASELINE = '0.2.0-rc.2'
 const DSH_PEERS = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-tools']
 
 test('peer 只声明 0.2.0 线（v0.2.0 起不再支持更早的宿主）', () => {
     for (const name of DSH_PEERS) {
-        assert.equal(pkg.peerDependencies[name], '^0.2.0-rc.1', `${name} 的 peer 必须是 ^0.2.0-rc.1`)
+        assert.equal(pkg.peerDependencies[name], '^0.2.0-rc.1 || ^0.2.0-rc.2', `${name} 的 peer 必须显式覆盖 rc.1 与 rc.2`)
     }
     const joined = DSH_PEERS.map((n) => pkg.peerDependencies[n]).join(' ')
     assert.doesNotMatch(joined, /0\.1\.\d/, '不得再声明 0.1.x 线（本版明确不支持）')
