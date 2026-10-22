@@ -4,7 +4,7 @@
 
 > 变更历史见 [CHANGELOG.md](CHANGELOG.md)；升级步骤与宿主注意事项见 [UPGRADE.md](UPGRADE.md)。
 >
-> **依赖基线：DSH v0.2.0-rc.2**（npm `latest` 与 `next` 均已指向它）。
+> **依赖基线：DSH v0.2.1-rc.2**（npm `latest` 与 `next` 均已指向它）。
 > devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.2.0-rc.1`
 > + `cordis@4.0.4`；peerDependencies 声明 **`^0.2.0-rc.1 || ^0.2.0-rc.2`** —— 本版**只支持 0.2.0 线**
 > （0.2.0-rc.1 及以后（含 rc.2））。需要 0.1.x 宿主请用 v0.1.8 及更早版本。
@@ -39,8 +39,8 @@
 
 前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.7-rc.1**（或 0.1.5-rc.x，两条线都支持）；飞书/企业微信应用凭证（按需）。
 
-**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.2.0-rc.1`
-+ `cordis@^4.0.2` —— 覆盖 0.2.0-rc.1、0.2.0 及未来 0.2.x（不覆盖 0.3.x）；宿主装哪个都满足，
+**依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.1-rc.2`
++ `cordis@^4.0.2` —— 覆盖 0.2.0-rc.x、0.2.1-rc.x 与稳定版 0.2.x（不覆盖 0.3.x）；宿主装哪个都满足，
 pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本）。
 
 **平台 SDK 会自动安装**：飞书 `@larksuiteoapi/node-sdk` 与企微 `@wecom/crypto` 声明在
@@ -52,8 +52,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.2.1）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.2.1
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.2.2）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.2.2
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -339,7 +339,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.2.1` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.2.2` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
@@ -558,7 +558,7 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 
 ## DSH 版本兼容性
 
-### 支持基线：DSH 0.2.0 线（0.2.0-rc.1 / rc.2 均已核实）
+### 支持基线：DSH 0.2.x 线（0.2.0-rc.1/rc.2、0.2.1-rc.1/rc.2 均已核实）
 
 **破坏性说明**：v0.2.0 起，本插件只声明 `^0.2.0-rc.1 || ^0.2.0-rc.2` —— 在 0.1.5-rc.x / 0.1.7-rc.x 宿主上
 会因 peer 不满足而被插件版本闸门拒绝（`incompatible-version`）。需要旧宿主请继续用 **v0.1.8**。
@@ -572,8 +572,14 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 | 会话事件表面（`snapshotEvents` / `eventAt` / `ownEvents` / `firstLiveSeq`）与事件清单 | 完全一致 | `session-events.ts` 适配层继续生效 |
 | `approval/request` 应答契约（`ApprovalOutcome` 字符串）与 `approval/asked`+`approval/decided` 审计对 | 完全一致 | 契约测试跑**真实** 0.2.0-rc.1 服务，194/194 通过 |
 | 插件 manifest 字段（`dsh.runtime` / `dsh.bundle`） | 未变（`dsh-plugin-manager` 仍只读这些） | 无需改动 |
-| `cordis` | 4.0.4（未变） | 真实 Context 集成测试全绿 |
+| `cordis` | 4.0.4 → **4.0.5** | 导出零增删；真实 Context 集成测试全绿 |
 | 唯一新增 API | `dsh-session` 的 `ToolCallRecovery`（宿主内部的工具调用恢复） | 不构成插件扩展点 |
+
+**0.2.0-rc.2 → 0.2.1-rc.2（已核实）**：cordis 4.0.4 → **4.0.5**（导出零增删）；依赖树新增 10 个包、
+移除 6 个（`dsh-hooks-claude-code` / `dsh-hooks-codex` / `dsh-webhook` / `dsh-webhook-github` /
+`dsh-tool-ralph` / `dsh-experimental-schedule-bundle`，与本插件无关）；`dsh-tools` 新增的
+`PtcDispatchEventData.meta`（PTC 嵌套调用的呈现元数据）**不适用于普通工具**，本插件不接入；
+四个包顶层导出零增删、关键类型文件逐文件一致；200/200 测试通过。
 
 **0.2.0-rc.1 → rc.2（已核实，纯版本滚动）**：依赖树零增删（82 → 82）、非 dsh 依赖无变化；
 四个包**顶层导出零增删**；关键类型文件（`model-selection` / `runtime-types` / `tools types`+`schema` /

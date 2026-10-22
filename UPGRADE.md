@@ -4,13 +4,13 @@
 
 ## 谁需要升级到 v0.2.0
 
-> **前置条件：宿主必须先升到 DSH ≥ 0.2.0-rc.1（rc.2 亦可，已核实）。** 本版 peer 声明为 `^0.2.0-rc.1 || ^0.2.0-rc.2`，
+> **前置条件：宿主必须先升到 DSH ≥ 0.2.0-rc.1；**0.2.1-rc.1 / rc.2 亦已核实并显式列入 peer**。** 本版 peer 声明为 `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.1-rc.2`，
 > 在 0.1.5-rc.x / 0.1.7-rc.x 宿主上会被版本闸门以 `incompatible-version` 拒绝加载；
 > 那些宿主请继续使用 **v0.1.8**。
 
 | 你的情况 | 建议 |
 |---|---|
-| 宿主已是 **DSH 0.2.0-rc.1 / rc.2**（或 0.2.x） | 升级到本版（v0.2.0）—— 这是唯一声明支持 0.2.0 线的版本 |
+| 宿主已是 **DSH 0.2.0-rc.x / 0.2.1-rc.x**（或 0.2.x 稳定版） | 升级到本版（v0.2.0）—— 这是唯一声明支持 0.2.0 线的版本 |
 | 宿主仍是 0.1.5-rc.x / 0.1.7-rc.x | **留在 v0.1.8**；本版不会加载（peer 不满足） |
 | 用 `permission.bridgeHarnessApproval`（headless 24×7 审批桥） | 升到 ≥ v0.1.5（审批返回值契约修复），本版同样包含 |
 | 想让审批走 IM | ≥ v0.1.5 起支持（IM 审批 P0–P3） |
@@ -19,7 +19,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.2.1
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.2.2
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -43,14 +43,17 @@ head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.
 - **插件版本闸门（0.1.7-rc.2 起）**：宿主按插件声明的 DSH peer 范围检查运行时版本，不匹配即拒绝加载，
   错误码 `incompatible-version`（含未满足的 `peers` 列表）。本插件用**范围** peer，在 0.2.0 线上天然通过；
   需要混搭其它插件版本时才用上一节的官方豁免流程。
-- **0.2.0-rc.1 自身没有包改名、也没有新的 manifest 字段要求**（`dsh.runtime` / `dsh.bundle` 不变）；
+- **0.2.1-rc.2 移除了若干包**：`dsh-hooks-claude-code`、`dsh-hooks-codex`、`dsh-webhook`、
+  `dsh-webhook-github`、`dsh-tool-ralph`、`dsh-experimental-schedule-bundle` —— 若 profile 的
+  patch 里显式 insert 了它们，会看到 `failed to import`（与本插件无关）；删掉对应行即可。
+- **0.2.0 / 0.2.1 都没有包改名、也没有新的 manifest 字段要求**（`dsh.runtime` / `dsh.bundle` 不变）；
   它新增的实验包 `dsh-experimental-schedule-bundle` 与本插件无关。
 - **HMR 在 TUI / web profile 默认开启**（headless / sdk / acp 默认禁用）→ 插件会被热重载，见下一节。
 
 ## 插件版本豁免（`dsh-plugin-manager`，0.1.7-rc.2 起）
 
 宿主按插件声明的 DSH peer 范围检查运行时版本；不匹配的插件会被拒绝加载（错误码
-`incompatible-version`，附未满足的 `peers`）。**本插件用范围 peer（`^0.2.0-rc.1 || ^0.2.0-rc.2`），
+`incompatible-version`，附未满足的 `peers`）。**本插件用范围 peer（`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.1-rc.2`），
 在 0.2.0 线上天然通过，不需要豁免** —— 本节只用于"确有需要把某个插件跑在不匹配的宿主上"。
 
 ```sh
@@ -118,7 +121,7 @@ dsh --profile <profile> --dump-config-schema | grep -A 30 chatInteraction
 
 ### v0.2.0：只支持 DSH 0.2.0 线（本版唯一的破坏性变更）
 
-- `peerDependencies` 由 `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2` 收窄为 **`^0.2.0-rc.1 || ^0.2.0-rc.2`**。
+- `peerDependencies` 由 `^0.1.5-rc.1 || ^0.1.7-rc.1 || ^0.1.7-rc.2` 收窄为 **`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.1-rc.2`**。
   在 0.1.5-rc.x / 0.1.7-rc.x 宿主上，v0.2.0 会被版本闸门以 `incompatible-version` 拒绝加载 ——
   **那些宿主请继续使用 v0.1.8**（0.1.x 宿主的最后可用版本线）。
 - 推荐升级顺序：**先把 dsh 升到 ≥ 0.2.0-rc.1** → 再把本插件升到 v0.2.0。反过来做会让插件暂时不加载。

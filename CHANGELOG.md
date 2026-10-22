@@ -5,6 +5,27 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.2.2] - 2026-10-22
+
+### 适配 DSH v0.2.1-rc.2
+
+- devDeps 升到 **0.2.1-rc.2**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）+
+  **cordis 4.0.4 → 4.0.5**
+- peer 显式覆盖两条 rc 基线：**`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.1-rc.2`**
+  （原 `^0.2.0-rc.1 || ^0.2.0-rc.2` 在 semver 预发布规则下**不覆盖** 0.2.1-rc.x）
+- 核实（0.2.0-rc.2 → 0.2.1-rc.2）：
+  - **cordis 4.0.4 → 4.0.5**：顶层导出零增删
+  - 依赖树新增 10 个包、移除 6 个（hooks-claude-code / hooks-codex / webhook / webhook-github /
+    tool-ralph / experimental-schedule-bundle）—— 与本插件无关，但 profile patch 若显式引用会
+    `failed to import`，已写入 UPGRADE
+  - `dsh-tools` 新增 `PtcDispatchEventData.meta`（PTC 嵌套调用的可重放呈现元数据）；
+    本插件注册的是普通工具、不做 PTC，**不接入**该字段
+  - 四个包顶层导出零增删；`model-selection` / `runtime-types` / `tools types`+`schema` /
+    `user-approval types` 逐文件比对通过（schema 仅注释措辞变化）
+  - rc.1 → rc.2 为纯版本滚动（依赖零增删）
+- 200/200 测试通过（含真实 0.2.1-rc.2 服务跑的审批契约与真实 cordis 4.0.5 Context 集成测试）
+- 真机：真实 0.2.1-rc.2 宿主装配到 `dsh-chat-interaction ready`
+
 ## [0.2.1] - 2026-09-30
 
 ### 适配 DSH v0.2.0-rc.2
@@ -279,6 +300,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.2.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.2
 [0.2.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.1
 [0.2.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.0
 [0.1.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.1.8
