@@ -1,6 +1,7 @@
 import type { MessageRouter, InteractionHub } from './hub.js';
 import type { PendingStore } from './pending.js';
 import type { LogFn } from './log.js';
+import type { CommandRegistry } from './api.js';
 import type { InboundMessage } from './types.js';
 export interface RouterConfig {
     enabled?: boolean;
@@ -149,5 +150,11 @@ export interface RouterDeps {
     pendingStore: PendingStore;
     config: ResolvedRouterConfig;
     log?: LogFn;
+    /**
+     * Commands contributed by OTHER plugins (via `layer.api.registerCommand`).
+     * A slash command is the user's explicit intent, so it is handled before
+     * pending questions and task mode — never swallowed as an answer.
+     */
+    commands?: CommandRegistry;
 }
 export declare function createRouter(deps: RouterDeps): MessageRouter;

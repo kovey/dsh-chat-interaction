@@ -66,6 +66,42 @@ export {
 } from './approval.js'
 export type { AnswerDecision, ApprovalDeps, ApprovalHarness, GateInput, GateOutput, PreExecutePayload } from './approval.js'
 
+// public API for OTHER plugins (send / ask / notify / commands)
+export {
+    CHAT_INTERACTION_API_VERSION,
+    commandRegistryOf,
+    containFilePath,
+    createChatApi,
+    makeActionValue,
+    makeAskValue,
+} from './api.js'
+export type {
+    ActionAnswer,
+    ActionRequest,
+    ApiErrorCode,
+    ApiInfo,
+    ApiResult,
+    AskAnswer,
+    AskOption,
+    AskRequest,
+    ChannelInfo,
+    ChatApiDeps,
+    ChatInteractionApi,
+    ChatTarget,
+    CommandContext,
+    CommandInfo,
+    CommandRegistry,
+    CommandReply,
+    CommandSpec,
+    ConfirmResult,
+    FileRequest,
+    NoticeLevel,
+    NoticeRequest,
+    NoticeResult,
+    ResolvedTarget,
+    SendOk,
+} from './api.js'
+
 // channel lease (heartbeat takeover between service and TUI)
 export { ChannelLease } from './lease.js'
 export type { AcquireResult, InstanceRole, LeaseOptions, LeaseState } from './lease.js'

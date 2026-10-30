@@ -45,6 +45,8 @@ export class InteractionHub {
     channels = new Map();
     seen = new Set();
     waiters = new Map();
+    /** Observe-only inbound hooks (another plugin's integration point). */
+    inboundObservers = new Set();
     retry;
     tornDown = false;
     constructor(options = {}) {
@@ -142,6 +144,15 @@ export class InteractionHub {
      * is the agent's handling. Messages in other chats flow normally.
      */
     waitReply(channel, chatId, timeoutMs, signal) {
+        return this.waitFor(channel, chatId, null, timeoutMs, signal);
+    }
+    /**
+     * Like {@link waitReply}, but only consumes a message the predicate accepts.
+     * Non-matching messages continue to other waiters and then to the router —
+     * that is what makes an "await the button click" flow safe to run in the
+     * background without stealing ordinary chat.
+     */
+    waitFor(channel, chatId, accept, timeoutMs, signal) {
         const def = this.options.waitTimeoutDefaultMs ?? 120_000;
         const max = this.options.waitTimeoutMaxMs ?? 600_000;
         const t = Math.min(Math.max(Number(timeoutMs) || def, 1000), max);
@@ -151,6 +162,7 @@ export class InteractionHub {
                 resolve,
                 reject,
                 cleanup: () => { },
+                ...(accept ? { accept } : {}),
             };
             let timer = null;
             const onAbort = () => {
@@ -191,12 +203,46 @@ export class InteractionHub {
             this.waiters.set(key, list);
         });
     }
-    takeWaiter(channel, chatId) {
+    /**
+     * Observe every accepted inbound message (after dedupe, before waiters and
+     * routing). Handlers must not throw and must not block the pipeline.
+     * Returns a disposer.
+     */
+    onInbound(handler) {
+        this.inboundObservers.add(handler);
+        return () => { this.inboundObservers.delete(handler); };
+    }
+    notifyInbound(msg) {
+        for (const handler of this.inboundObservers) {
+            try {
+                handler(msg);
+            }
+            catch (e) {
+                this.log('error', 'inbound observer failed:', e.message);
+            }
+        }
+    }
+    takeWaiter(channel, chatId, msg) {
         const key = `${channel}|${chatId}`;
         const list = this.waiters.get(key);
         if (!list || list.length === 0)
             return null;
-        const entry = list.shift();
+        let index = 0;
+        if (msg) {
+            index = list.findIndex((w) => {
+                if (!w.accept)
+                    return true; // an unfiltered waiter takes anything
+                try {
+                    return w.accept(msg);
+                }
+                catch {
+                    return false; // a broken predicate must not block the pipeline
+                }
+            });
+            if (index < 0)
+                return null;
+        }
+        const entry = list.splice(index, 1)[0];
         if (list.length === 0)
             this.waiters.delete(key);
         try {
@@ -242,6 +288,8 @@ export class InteractionHub {
         catch (e) {
             this.log('error', 'state update failed:', e.message);
         }
+        // 3.5) observe-only hooks (other plugins may want every inbound message)
+        this.notifyInbound(msg);
         // 4) an agent-side waiter consumes the message, so a running task gets
         //    the answer it is blocked on. Precedence:
         //      - images always become a new turn (the agent must SEE them)
@@ -255,7 +303,7 @@ export class InteractionHub {
                 this.options.hasPendingQuestion(msg.channel, msg.chatId);
             const waiterAllowed = !hasImages && (!pending || !msg.isCardAction);
             if (waiterAllowed) {
-                const waiter = this.takeWaiter(msg.channel, msg.chatId);
+                const waiter = this.takeWaiter(msg.channel, msg.chatId, msg);
                 if (waiter) {
                     this.log('info', `message consumed by wait_reply: ${msg.channel} ${msg.chatId}`, msg.messageId || '');
                     waiter.resolve({

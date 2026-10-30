@@ -28,6 +28,7 @@ import type { PendingStore } from './pending.js'
 import { log as defaultLog } from './log.js'
 import type { LogFn } from './log.js'
 import { expandHome, projStateDir, readFileSafe, writeFileSafe } from './state.js'
+import type { CommandRegistry } from './api.js'
 import { isModelAvailable, readModelCatalog, warnOnce } from './model-catalog.js'
 import type { InboundMessage } from './types.js'
 
@@ -433,6 +434,12 @@ export interface RouterDeps {
     pendingStore: PendingStore
     config: ResolvedRouterConfig
     log?: LogFn
+    /**
+     * Commands contributed by OTHER plugins (via `layer.api.registerCommand`).
+     * A slash command is the user's explicit intent, so it is handled before
+     * pending questions and task mode — never swallowed as an answer.
+     */
+    commands?: CommandRegistry
 }
 
 export function createRouter(deps: RouterDeps): MessageRouter {
@@ -857,6 +864,15 @@ export function createRouter(deps: RouterDeps): MessageRouter {
     const router: MessageRouter = async (msg: InboundMessage): Promise<RouterDecision> => {
         if (!cfg.enabled) return { handled: false, followup: true, mode: 'followup' }
         try {
+            // 0) plugin-registered slash commands win over everything else:
+            //    `/deploy` is an explicit instruction, not an answer to a card
+            //    and not a supplement to a running task.
+            const command = deps.commands?.match(String(msg.text || ''))
+            if (command) {
+                const handled = await deps.commands!.run(command, msg)
+                if (handled) return { handled: true, followup: false, mode: 'command' }
+            }
+
             // 1) an open plugin question owns a *clear* answer (card click,
             //    option word, cancel) — resolve it even mid-task, otherwise a
             //    permission-mode card could hang forever during a task.

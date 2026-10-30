@@ -3,6 +3,7 @@ import type { AckTextFn } from './hub.js';
 import { DshBridge } from './harness.js';
 import type { CordisContextLike, HarnessContext } from './harness.js';
 import type { ChannelAdapter } from './channel.js';
+import type { ChatInteractionApi } from './api.js';
 import type { ResolvedScoringConfig, ScoringConfig } from './scoring.js';
 import type { RouterConfig } from './router.js';
 import type { FeishuChannelConfig } from './adapters/feishu.js';
@@ -128,6 +129,11 @@ export declare function resolvePluginConfig(raw?: PluginConfig): ResolvedPluginC
 /** The assembled layer, returned by apply() and exported as a service. */
 export interface DshChatLayer {
     name: string;
+    /**
+     * Stable, versioned API for OTHER plugins (send / ask / notify / commands).
+     * See `API.md`. `api.apiVersion` gates breaking changes.
+     */
+    api: ChatInteractionApi;
     hub: InteractionHub;
     bridge: DshBridge;
     adapters: Map<string, ChannelAdapter>;

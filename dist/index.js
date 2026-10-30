@@ -31,6 +31,8 @@ export { InteractionHub } from './hub.js';
 export { RetryGuard } from './retry.js';
 // authorization
 export { askViaChannel, buildApprovalCard, evaluateGate, parseAnswer, setupAuthorization, CMD_MAX_CHARS, } from './approval.js';
+// public API for OTHER plugins (send / ask / notify / commands)
+export { CHAT_INTERACTION_API_VERSION, commandRegistryOf, containFilePath, createChatApi, makeActionValue, makeAskValue, } from './api.js';
 // channel lease (heartbeat takeover between service and TUI)
 export { ChannelLease } from './lease.js';
 // pending Q&A store

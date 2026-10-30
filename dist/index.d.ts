@@ -32,6 +32,8 @@ export { RetryGuard } from './retry.js';
 export type { OutcomeProbe, RetryDeps, RetryOptions } from './retry.js';
 export { askViaChannel, buildApprovalCard, evaluateGate, parseAnswer, setupAuthorization, CMD_MAX_CHARS, } from './approval.js';
 export type { AnswerDecision, ApprovalDeps, ApprovalHarness, GateInput, GateOutput, PreExecutePayload } from './approval.js';
+export { CHAT_INTERACTION_API_VERSION, commandRegistryOf, containFilePath, createChatApi, makeActionValue, makeAskValue, } from './api.js';
+export type { ActionAnswer, ActionRequest, ApiErrorCode, ApiInfo, ApiResult, AskAnswer, AskOption, AskRequest, ChannelInfo, ChatApiDeps, ChatInteractionApi, ChatTarget, CommandContext, CommandInfo, CommandRegistry, CommandReply, CommandSpec, ConfirmResult, FileRequest, NoticeLevel, NoticeRequest, NoticeResult, ResolvedTarget, SendOk, } from './api.js';
 export { ChannelLease } from './lease.js';
 export type { AcquireResult, InstanceRole, LeaseOptions, LeaseState } from './lease.js';
 export { PendingStore } from './pending.js';

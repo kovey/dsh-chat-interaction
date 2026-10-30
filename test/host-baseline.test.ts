@@ -74,12 +74,17 @@ test('README / UPGRADE 的安装命令 pin 到当前版本', () => {
     }
 })
 
-test('CHANGELOG 已收口当前版本，且记录了破坏性变更', () => {
+test('CHANGELOG 已收口当前版本；破坏性发布的历史记录仍保留', () => {
     assert.match(changelog, new RegExp(`## \\[${pkg.version.replace(/\./g, '\\.')}\\]`), `CHANGELOG 必须有 [${pkg.version}] 段落`)
     assert.doesNotMatch(changelog.split('\n')[0]!, /^## /, '文件必须以 # Changelog 标题开头')
-    const section = changelog.slice(changelog.indexOf(`## [${pkg.version}]`))
-    assert.match(section, /破坏性变更/, '0.2.0 是破坏性发布：必须先写破坏性变更')
-    assert.match(section, /incompatible-version/, '破坏性变更要写明宿主侧的表现（错误码）')
+    // 破坏性变更记录在 0.2.0 段（"只支持 0.2.0 线"那一次）；后续版本滚动不得丢失。
+    // 注意切片要停在下一个版本标题，否则会读到后面版本的正文（旧断言的漏洞）。
+    const start = changelog.indexOf('## [0.2.0]')
+    assert.ok(start >= 0, 'CHANGELOG 必须保留 [0.2.0] 段落')
+    const after = changelog.indexOf('\n## [', start + 1)
+    const breaking = changelog.slice(start, after === -1 ? undefined : after)
+    assert.match(breaking, /破坏性变更/)
+    assert.match(breaking, /incompatible-version/)
 })
 
 test('UPGRADE 写明前置条件（宿主必须先到基线）与豁免机制', () => {

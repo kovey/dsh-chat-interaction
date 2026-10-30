@@ -24,6 +24,7 @@ import { buildPromptSection } from './prompt.js';
 import { descriptorOf } from './channel.js';
 import { PendingStore } from './pending.js';
 import { askViaChannel, resolveContainedPath, setupAuthorization } from './approval.js';
+import { commandRegistryOf, createChatApi } from './api.js';
 import { applyScoreConfig, createScorer, resolveScoringConfig } from './scoring.js';
 import { readModelCatalog, reportDropped, sanitizeModelOverride } from './model-catalog.js';
 import { createRouter, resolveRouterConfig } from './router.js';
@@ -252,6 +253,45 @@ function applyInner(ctx, config, artifacts) {
     for (const adapter of adapters.values())
         hub.addChannel(adapter);
     log('info', `channels ready: ${Array.from(adapters.keys()).join(', ')}`);
+    // ---- public API for other plugins --------------------------------------
+    // Target resolution: explicit {channel, chatId} > {agent} > the active chat
+    // recorded for the channel. Commands/asks are token-bound (see api.ts).
+    const resolveActiveTarget = (channel) => {
+        const channels = channel ? [channel] : Array.from(adapters.keys());
+        for (const ch of channels) {
+            try {
+                const paths = statePaths(ch, bridge.cwdOf());
+                const chatId = (readFileSafe(paths.activeChat) || readFileSafe(paths.p2pChat)).trim();
+                if (chatId)
+                    return { channel: ch, chatId };
+            }
+            catch { /* try the next channel */ }
+        }
+        return null;
+    };
+    const resolveAgentTarget = (agent) => {
+        try {
+            const ch = channelOfAgent(agent);
+            const paths = statePaths(ch, cwdOfAgent(agent));
+            const chatId = (readFileSafe(paths.p2pChat) || readFileSafe(paths.activeChat)).trim();
+            return chatId ? { channel: ch, chatId } : null;
+        }
+        catch {
+            return null;
+        }
+    };
+    const api = createChatApi({
+        pluginVersion: PACKAGE_VERSION,
+        hub,
+        log: config.log || log,
+        adapters,
+        resolveActive: resolveActiveTarget,
+        resolveForAgent: resolveAgentTarget,
+        connect: (channel) => connectChannel(channel),
+        disconnect: (channel) => disconnectChannel(channel),
+        status: (channel) => hub.status(channel),
+        authState: (channel) => authState(channel),
+    });
     // ---- plugin autonomy router (commands / confirmations / casual chat) ----
     const routerCfg = resolveRouterConfig(config.router);
     if (routerCfg.enabled) {
@@ -262,6 +302,7 @@ function applyInner(ctx, config, artifacts) {
             pendingStore,
             config: { ...routerCfg, cwdOf: () => bridge.cwdOf() },
             log: config.log,
+            commands: commandRegistryOf(api),
         });
         log('info', `router enabled (model=${routerCfg.model}, autoReply=${routerCfg.autoReply})`);
     }
@@ -480,6 +521,7 @@ function applyInner(ctx, config, artifacts) {
             catch { /* best effort */ }
         }
         signalHandlers.length = 0;
+        api.dispose();
         hub.teardown();
         for (const lease of leases.values())
             lease.dispose(); // stop heartbeats + release
@@ -542,6 +584,7 @@ function applyInner(ctx, config, artifacts) {
     // ---- service export -----------------------------------------------------
     const layer = {
         name,
+        api,
         hub,
         bridge,
         adapters,

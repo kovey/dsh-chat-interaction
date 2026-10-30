@@ -5,6 +5,24 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.0] - 2026-10-30
+
+### 新增 —— 面向其他插件的交互 API（`layer.api`）
+
+- `ctx.get('chatInteraction').api`，契约版本 `apiVersion = 1`，类型随包导出：
+  - 发送：`sendText` / `sendRichText` / `sendCard` / `sendFile`（能力降级 + 文件包含校验）
+  - 问答：`ask`（按钮值 / 选项值 / 标签 / 序号作答，`from` 白名单，`defaultOption`）、
+    `confirm`（超时 fail-closed）
+  - 通知：`notify`（level + 按钮）→ `waitForAction`（token 绑定，只消费本卡点击）
+  - 扩展：`registerCommand`（`/name`，优先于待确认问题与任务模式）、`onInbound`（只读观察）
+  - 元信息：`info` / `channels` / `capabilities` / `status` / `connect` / `disconnect` / `authState`
+- 安全语义：`ask:`/`act:` 一次性 token（旧卡/异卡点击不命中，不会误判为新答案）；
+  `sendFile` 做 realpath 包含校验（拒绝 `../` 逃逸与指向外部的符号链接）
+- 底层新增：`hub.waitFor(predicate)`（只消费匹配消息）与 `hub.onInbound`（观察者），
+  因此等待按钮不会再吞掉普通聊天
+- 测试：新增 `test/api.test.ts`（14 项）→ 套件 200 → 214
+- 文档：新增 `API.md`（完整参考 / 错误码 / 版本策略 / 示例插件），README 增索引
+
 ## [0.2.2] - 2026-10-22
 
 ### 适配 DSH v0.2.1-rc.2
@@ -300,6 +318,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.0
 [0.2.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.2
 [0.2.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.1
 [0.2.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.0

@@ -62,6 +62,8 @@ export declare class InteractionHub {
     private readonly channels;
     private readonly seen;
     private readonly waiters;
+    /** Observe-only inbound hooks (another plugin's integration point). */
+    private readonly inboundObservers;
     private readonly retry;
     private tornDown;
     constructor(options?: HubOptions);
@@ -95,6 +97,20 @@ export declare class InteractionHub {
      * is the agent's handling. Messages in other chats flow normally.
      */
     waitReply(channel: string, chatId: string, timeoutMs?: number, signal?: AbortSignal): Promise<WaitResult>;
+    /**
+     * Like {@link waitReply}, but only consumes a message the predicate accepts.
+     * Non-matching messages continue to other waiters and then to the router —
+     * that is what makes an "await the button click" flow safe to run in the
+     * background without stealing ordinary chat.
+     */
+    waitFor(channel: string, chatId: string, accept: ((msg: InboundMessage) => boolean) | null, timeoutMs?: number, signal?: AbortSignal): Promise<WaitResult>;
+    /**
+     * Observe every accepted inbound message (after dedupe, before waiters and
+     * routing). Handlers must not throw and must not block the pipeline.
+     * Returns a disposer.
+     */
+    onInbound(handler: (msg: InboundMessage) => void): () => void;
+    private notifyInbound;
     private takeWaiter;
     /**
      * The full inbound pipeline. Never throws: failures fall back to waking

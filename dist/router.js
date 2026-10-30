@@ -668,6 +668,15 @@ export function createRouter(deps) {
         if (!cfg.enabled)
             return { handled: false, followup: true, mode: 'followup' };
         try {
+            // 0) plugin-registered slash commands win over everything else:
+            //    `/deploy` is an explicit instruction, not an answer to a card
+            //    and not a supplement to a running task.
+            const command = deps.commands?.match(String(msg.text || ''));
+            if (command) {
+                const handled = await deps.commands.run(command, msg);
+                if (handled)
+                    return { handled: true, followup: false, mode: 'command' };
+            }
             // 1) an open plugin question owns a *clear* answer (card click,
             //    option word, cancel) — resolve it even mid-task, otherwise a
             //    permission-mode card could hang forever during a task.
