@@ -19,7 +19,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.0
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.1
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -49,6 +49,38 @@ head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.
 - **0.2.0 / 0.2.1 都没有包改名、也没有新的 manifest 字段要求**（`dsh.runtime` / `dsh.bundle` 不变）；
   它新增的实验包 `dsh-experimental-schedule-bundle` 与本插件无关。
 - **HMR 在 TUI / web profile 默认开启**（headless / sdk / acp 默认禁用）→ 插件会被热重载，见下一节。
+
+## 多项目下的状态位置（0.3.x 起统一到项目内）
+
+| 状态 | 位置 |
+|---|---|
+| 渠道租约 | `<项目>/.dsh/chat-interaction-lease-<channel>-<accountKey>.json` |
+| 待答问题 | `<项目>/.dsh/pending/` |
+| 卡片存档 | `<项目>/.dsh/<channel>-cards/` |
+| 对话记忆 | `<项目>/.dsh/chat-history/` |
+| 审批人 / 账本 / 权限模式 / active chat / 媒体 | `<项目>/.dsh/` |
+
+**升级注意**：旧版本的全局状态文件（`~/.dsh/chat-interaction-lease-*.json`、
+`~/.dsh/chat-pending/`、`~/.dsh/<channel>-cards/`、`~/.dsh/chat-history/`）**不再读取**，
+可以安全删除。升级时请先关闭旧窗口 —— 旧实例可能仍占着机器人连接（新实例会看到
+legacy 租约提示并等待其心跳过期，默认 90s）。
+
+**仍为全局（有意为之）**：`~/.dsh/chat-interaction.log`（日志）、
+`~/.dsh/chat-interaction-spool.jsonl`（入站 tee）、`~/.dsh/settings.yaml`（模型配置）。
+需要彻底隔离时在 config 里把它们改到项目内即可。
+
+## 多项目 / 多机器人下的租约（重要）
+
+租约保护的是**机器人**（同一 app 只能有一个监听器），不是渠道名：
+
+| 场景 | 行为 |
+|---|---|
+| 两个项目各用**不同**飞书 app（`<项目>/.dsh/feishu-app.json` 不同） | ✅ 可同时连接（各自租约文件） |
+| 两个项目/窗口用**同一个**飞书 app | ❌ 第二个被拒（双 WS 会分流丢消息）——这是有意的 |
+| 升级后旧实例仍在写旧的渠道级租约 | ⚠️ 新实例会拒绝并提示 `legacy channel-scoped lease`；关掉旧实例或等其心跳过期（90s）即可 |
+
+排查：`cat ~/.dsh/chat-interaction-lease-feishu-*.json` 看 `owner/role/heartbeatAt`；
+日志里 `lease: acquired channel feishu (account <指纹>) as interactive` 会显示实际身份。
 
 ## 插件版本豁免（`dsh-plugin-manager`，0.1.7-rc.2 起）
 

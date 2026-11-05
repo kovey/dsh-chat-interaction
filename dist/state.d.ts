@@ -26,8 +26,11 @@ export declare function statePaths(channel: string, cwd?: string, cfg?: {
     approvers: string;
     /** Append-only JSONL of every approval decision (who/when/which card). */
     approvalLedger: string;
+    /**
+     * Card spool used to rebuild a clicked card. Project-scoped: two projects
+     * (even with the same bot) must not read each other's cards.
+     */
     cardStore: string;
-    globalActiveChat: string;
     /** Downloaded inbound images — per project AND per channel. */
     mediaDir: string;
     /** Task-active marker dir — per project AND per channel. */

@@ -35,7 +35,7 @@ export interface RouterConfig {
     chatTimeoutMs?: number;
     /** Per-chat conversation memory size (turns). */
     chatHistoryTurns?: number;
-    /** Where per-chat memory lives; default ~/.dsh/chat-history. */
+    /** Where per-chat memory lives; default `<project>/.dsh/chat-history`. */
     chatDir?: string;
     /** Idle TTL for the task-active marker (default 8h). */
     taskActiveTtlMs?: number;

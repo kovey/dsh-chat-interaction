@@ -16,6 +16,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { InteractionHub } from './hub.js'
 import type { AckTextFn, HubOptions } from './hub.js'
@@ -36,14 +37,15 @@ import type { ResolvedScoringConfig, ScoringConfig } from './scoring.js'
 import { createRouter, resolveRouterConfig } from './router.js'
 import type { RouterConfig } from './router.js'
 import { createFeishuChannel } from './adapters/feishu.js'
+import { resolveFeishuCreds } from './adapters/feishu.js'
 import type { FeishuChannelConfig } from './adapters/feishu.js'
-import { createWeComChannel } from './adapters/wecom.js'
+import { createWeComChannel, resolveWeComCreds } from './adapters/wecom.js'
 import type { WeComChannelConfig } from './adapters/wecom.js'
-import { createWeComBotChannel } from './adapters/wecom-bot.js'
+import { createWeComBotChannel, resolveWeComBotCreds } from './adapters/wecom-bot.js'
 import type { WeComBotChannelConfig } from './adapters/wecom-bot.js'
 import { ChannelLease } from './lease.js'
 import type { InstanceRole } from './lease.js'
-import { expandHome, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js'
+import { dshHome, expandHome, projStateDir, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js'
 import { getLogFile, log, setLogFile } from './log.js'
 import type { LogFn } from './log.js'
 import type { RetryOptions } from './retry.js'
@@ -145,7 +147,10 @@ export interface PluginConfig {
     /** Adapters for platforms beyond the built-ins, e.g. { dingtalk: (cfg) => ... }. */
     channelFactories?: Record<string, ChannelFactory>
     /**
-     * Channel lease: only one instance owns a channel's connection at a time.
+     * Channel lease: only one instance owns a **bot's** connection at a time.
+     * The lease is keyed by channel + an account fingerprint derived from the
+     * resolved credentials (per project first), so two projects with different
+     * bots never block each other while the same bot stays exclusive.
      * An `interactive` (TUI) instance preempts a `service` (24×7 headless)
      * holder; the service takes the channel back once the TUI releases or its
      * heartbeat expires — the launchd-service ⇄ TUI heartbeat takeover.
@@ -309,7 +314,10 @@ function applyInner(
         modelSelection: { restoreOnTurnEnd: scoring.restoreOnTurnEnd },
     })
     artifacts.bridge = bridge
-    const pendingStore = new PendingStore({ dir: expandHome(cfg.pendingDir) })
+    const pendingStore = new PendingStore({
+        // Project-scoped: open questions belong to the project that asked them.
+        dir: cfg.pendingDir ? expandHome(cfg.pendingDir) : path.join(projStateDir(process.cwd()), 'pending'),
+    })
 
     // Channel-origin tracking: agentId → { at, channel } (approval gate).
     const origin = new Map<string, { at: number; channel: string }>()
@@ -317,7 +325,12 @@ function applyInner(
     // ---- adapters ----------------------------------------------------------
     const adapters = new Map<string, ChannelAdapter>()
     const buildAdapter = (name: string, channelCfg: ChannelEntryConfig & Record<string, unknown>): ChannelAdapter => {
-        if (name === 'feishu') return createFeishuChannel(channelCfg as FeishuChannelConfig)
+        if (name === 'feishu') {
+            return createFeishuChannel({
+                ...(channelCfg as FeishuChannelConfig),
+                cwdOf: () => bridge.cwdOf(),
+            })
+        }
         if (name === 'wecom') return createWeComChannel(channelCfg as WeComChannelConfig)
         if (name === 'wecom_bot') return createWeComBotChannel(channelCfg as WeComBotChannelConfig)
         const factory = config.channelFactories?.[name]
@@ -470,6 +483,45 @@ function applyInner(
 
     /** Channels this instance is supposed to be serving (survives a takeover). */
     const desired = new Set<string>()
+
+    /**
+     * Lease identity = the BOT, not the channel name. Credentials resolve
+     * per project first (`<project>/.dsh/<channel>-app.json` → `~/.dsh/...` → env),
+     * so two projects with different bots must not block each other; the same bot
+     * across projects still must (double WS = split events).
+     */
+    const accountKeyOf = (channel: string): string | undefined => {
+        try {
+            const cwd = bridge.cwdOf()
+            let identity = ''
+            let sharedCred = false
+            const projHas = (name: string) => fs.existsSync(path.join(projStateDir(cwd), name))
+            const homeHas = (name: string) => fs.existsSync(path.join(dshHome(), name))
+            if (channel === 'feishu') {
+                const c = config.channels?.feishu as FeishuChannelConfig | undefined
+                identity = resolveFeishuCreds(cwd, (c ?? {}) as FeishuChannelConfig).appId
+                sharedCred = !c?.appId && !c?.credsFile && !projHas('feishu-app.json') && homeHas('feishu-app.json')
+            } else if (channel === 'wecom') {
+                const c = config.channels?.wecom as WeComChannelConfig | undefined
+                identity = resolveWeComCreds(cwd, (c ?? {}) as WeComChannelConfig).corpId
+                sharedCred = !c?.corpId && !c?.credsFile && !projHas('wecom-app.json') && homeHas('wecom-app.json')
+            } else if (channel === 'wecom_bot') {
+                const c = config.channels?.wecom_bot as WeComBotChannelConfig | undefined
+                identity = resolveWeComBotCreds(cwd, (c ?? {}) as WeComBotChannelConfig).botId
+                sharedCred = !c?.botId && !c?.secret && !projHas('wecom-bot.json') && homeHas('wecom-bot.json')
+            }
+            if (!identity) return undefined // no credential yet: lease stays channel-scoped (same project only)
+            if (sharedCred) {
+                // No global state is created for this: it is a read-only hint. The
+                // hazard is real though — two projects sharing one bot split events.
+                log('warn', `channel ${channel}: credentials resolved from ~/.dsh (shared); ` +
+                    'the same bot must not be connected from two projects at once (double WS splits events)')
+            }
+            return createHash('sha256').update(String(identity)).digest('hex').slice(0, 12)
+        } catch {
+            return undefined
+        }
+    }
 
     const connectChannel = async (channel: string): Promise<ListenerStatus & { ok: boolean }> => {
         const lease = leases.get(channel)
@@ -695,8 +747,11 @@ function applyInner(
         for (const chName of adapters.keys()) {
             const lease = new ChannelLease({
                 channel: chName,
+                accountKey: accountKeyOf(chName),
                 role: instanceRole,
-                dir: config.lease?.dir ? expandHome(config.lease.dir) : undefined,
+                // Leases live WITH the project (credentials and state are project-level):
+                // two projects must never block each other; same-project windows still do.
+                dir: config.lease?.dir ? expandHome(config.lease.dir) : projStateDir(bridge.cwdOf()),
                 ttlMs: config.lease?.ttlMs,
                 heartbeatMs: config.lease?.heartbeatMs,
                 log: config.log,

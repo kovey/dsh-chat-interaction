@@ -72,6 +72,8 @@ export interface FeishuChannelConfig {
     /** Where sent-card stashes live (message_id-keyed JSON). */
     cardStoreDir?: string
     cardStoreTtlMs?: number
+    /** Project cwd resolver (the plugin passes the session's cwd; default process.cwd()). */
+    cwdOf?: () => string
     /** Download dir for inbound images; default `<project>/.dsh/feishu-media`. */
     mediaDir?: string | (() => string)
     mediaRetentionDays?: number
@@ -380,7 +382,9 @@ export class FeishuChannel extends BaseChannel {
     }
 
     private cardStoreDir(cwd: string): string {
-        return expandHome(this.cfg.cardStoreDir || `~/.dsh/${this.name}-cards`)
+        // Project-scoped by default: a card click must resolve against the cards
+        // THIS project sent (two projects sharing a bot must not cross-read).
+        return expandHome(this.cfg.cardStoreDir || path.join(projStateDir(cwd), `${this.name}-cards`))
     }
 
     private mediaDir(cwd: string): string {
@@ -558,7 +562,7 @@ export class FeishuChannel extends BaseChannel {
             }
 
             // Rebuild the card so the click visibly sticks.
-            const updatedCard = buildUpdatedCard(this.cardStoreDir(process.cwd()), String(c.open_message_id || ''), choice)
+            const updatedCard = buildUpdatedCard(this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd()), String(c.open_message_id || ''), choice)
             const cardResponse = (toastContent: string): Record<string, unknown> => {
                 const resp: Record<string, unknown> = { toast: { type: 'success', content: toastContent } }
                 if (updatedCard) resp.card = { type: 'raw', data: updatedCard }
@@ -650,7 +654,7 @@ export class FeishuChannel extends BaseChannel {
     private stashCard(title: string, body: string, buttons: CardSpec['buttons'], messageId: string): void {
         if (!messageId) return
         try {
-            const dir = this.cardStoreDir(process.cwd())
+            const dir = this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd())
             fs.mkdirSync(dir, { recursive: true })
             fs.writeFileSync(path.join(dir, messageId + '.json'), JSON.stringify({ title, body: body || '', buttons: buttons || [] }))
             pruneOldFiles(dir, this.cfg.cardStoreTtlMs)

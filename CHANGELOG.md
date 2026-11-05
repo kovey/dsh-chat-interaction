@@ -5,6 +5,31 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.1] - 2026-11-05
+
+### 修复 —— 状态作用域审计（该在项目里的都放回项目）
+
+**问题**：凭据与多数状态是**项目级**，但一批状态写在 `~/.dsh` 全局：两个项目会互相阻塞、
+互相覆盖，甚至泄漏彼此的授权上下文。逐项修复：
+
+| 状态 | 旧位置（全局） | 新位置（项目内） |
+|---|---|---|
+| 渠道租约 | `~/.dsh/chat-interaction-lease-<channel>*.json` | `<项目>/.dsh/chat-interaction-lease-<channel>-<accountKey>.json` |
+| 待答问题（pending） | `~/.dsh/chat-pending` | `<项目>/.dsh/pending` |
+| 卡片存档（点击回查） | `~/.dsh/<channel>-cards` | `<项目>/.dsh/<channel>-cards` |
+| 对话记忆（router 分类/追问） | `~/.dsh/chat-history` | `<项目>/.dsh/chat-history` |
+| 全局 active chat 回退 | `~/.dsh/<channel>-active-chat.txt`（**只写不读**） | **删除**（多项目互相覆盖/泄漏授权） |
+
+- **租约身份改为「项目 + 渠道 + 机器人指纹」**：项目之间不再互相阻塞；同一项目内同一个 bot
+  仍然互斥（双 WS 会分流丢消息）。旧版渠道级租约若仍活跃，会提示 legacy 并等待其过期。
+- **`projStateDir` 修正**：非 git 目录过去默认落到 `.claude`（判断写反），新项目现在落到
+  `<项目>/.dsh`；已存在 legacy `.claude` 的项目继续沿用（兼容）。
+- **共享凭据提示**：凭据来自全局 `~/.dsh/*-app.json` 回退时打 warn（同一 bot 不要跨项目同时连），
+  不新增任何全局状态。
+- 保留全局（有意为之，且可配置）：`logFile`（集中排障）、`spoolFile`（入站 tee，记录含
+  channel/chatId）、`~/.dsh/settings.yaml`（宿主级模型配置）。
+- 测试：新增 `test/state-scope.test.ts`（2 项作用域断言）与租约跨项目用例 → 套件 220 → 223。
+
 ## [0.3.0] - 2026-10-30
 
 ### 新增 —— 面向其他插件的交互 API（`layer.api`）
@@ -318,6 +343,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.0
 [0.2.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.2
 [0.2.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.1

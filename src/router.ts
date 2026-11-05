@@ -68,7 +68,7 @@ export interface RouterConfig {
     chatTimeoutMs?: number
     /** Per-chat conversation memory size (turns). */
     chatHistoryTurns?: number
-    /** Where per-chat memory lives; default ~/.dsh/chat-history. */
+    /** Where per-chat memory lives; default `<project>/.dsh/chat-history`. */
     chatDir?: string
     /** Idle TTL for the task-active marker (default 8h). */
     taskActiveTtlMs?: number
@@ -126,7 +126,7 @@ const ROUTER_DEFAULTS: Omit<ResolvedRouterConfig, 'cwdOf' | 'fetchImpl'> = {
     autoDisambiguation: true,
     chatTimeoutMs: 30_000,
     chatHistoryTurns: 10,
-    chatDir: '~/.dsh/chat-history',
+    chatDir: '', // empty = project-scoped (`<project>/.dsh/chat-history`)
     taskActiveTtlMs: 8 * 60 * 60 * 1000,
     autoTaskMarker: true,
     maxTaskMs: 12 * 60 * 60 * 1000,
@@ -469,8 +469,12 @@ export function createRouter(deps: RouterDeps): MessageRouter {
         return true
     }
 
-    const chatHistoryPath = (channel: string, chatId: string) =>
-        path.join(expandHome(cfg.chatDir), channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+    const chatHistoryPath = (channel: string, chatId: string) => {
+        // Conversation memory belongs to the project that owns it: a global slot
+        // leaks one project's chat history into another (and mixes same-bot chats).
+        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(projStateDir(cwdOf()), 'chat-history')
+        return path.join(base, channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+    }
 
     const loadHistory = (channel: string, chatId: string): ChatTurn[] => {
         try {

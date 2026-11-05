@@ -16,6 +16,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { InteractionHub } from './hub.js';
 import { DshBridge, harnessFromCordis, isHarnessContext } from './harness.js';
@@ -29,10 +30,11 @@ import { applyScoreConfig, createScorer, resolveScoringConfig } from './scoring.
 import { readModelCatalog, reportDropped, sanitizeModelOverride } from './model-catalog.js';
 import { createRouter, resolveRouterConfig } from './router.js';
 import { createFeishuChannel } from './adapters/feishu.js';
-import { createWeComChannel } from './adapters/wecom.js';
-import { createWeComBotChannel } from './adapters/wecom-bot.js';
+import { resolveFeishuCreds } from './adapters/feishu.js';
+import { createWeComChannel, resolveWeComCreds } from './adapters/wecom.js';
+import { createWeComBotChannel, resolveWeComBotCreds } from './adapters/wecom-bot.js';
 import { ChannelLease } from './lease.js';
-import { expandHome, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js';
+import { dshHome, expandHome, projStateDir, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js';
 import { getLogFile, log, setLogFile } from './log.js';
 export const name = 'dsh-chat-interaction';
 export const inject = ['tools', 'agents', 'systemPrompt'];
@@ -146,14 +148,21 @@ function applyInner(ctx, config, artifacts) {
         modelSelection: { restoreOnTurnEnd: scoring.restoreOnTurnEnd },
     });
     artifacts.bridge = bridge;
-    const pendingStore = new PendingStore({ dir: expandHome(cfg.pendingDir) });
+    const pendingStore = new PendingStore({
+        // Project-scoped: open questions belong to the project that asked them.
+        dir: cfg.pendingDir ? expandHome(cfg.pendingDir) : path.join(projStateDir(process.cwd()), 'pending'),
+    });
     // Channel-origin tracking: agentId → { at, channel } (approval gate).
     const origin = new Map();
     // ---- adapters ----------------------------------------------------------
     const adapters = new Map();
     const buildAdapter = (name, channelCfg) => {
-        if (name === 'feishu')
-            return createFeishuChannel(channelCfg);
+        if (name === 'feishu') {
+            return createFeishuChannel({
+                ...channelCfg,
+                cwdOf: () => bridge.cwdOf(),
+            });
+        }
         if (name === 'wecom')
             return createWeComChannel(channelCfg);
         if (name === 'wecom_bot')
@@ -314,6 +323,48 @@ function applyInner(ctx, config, artifacts) {
     const leases = new Map();
     /** Channels this instance is supposed to be serving (survives a takeover). */
     const desired = new Set();
+    /**
+     * Lease identity = the BOT, not the channel name. Credentials resolve
+     * per project first (`<project>/.dsh/<channel>-app.json` → `~/.dsh/...` → env),
+     * so two projects with different bots must not block each other; the same bot
+     * across projects still must (double WS = split events).
+     */
+    const accountKeyOf = (channel) => {
+        try {
+            const cwd = bridge.cwdOf();
+            let identity = '';
+            let sharedCred = false;
+            const projHas = (name) => fs.existsSync(path.join(projStateDir(cwd), name));
+            const homeHas = (name) => fs.existsSync(path.join(dshHome(), name));
+            if (channel === 'feishu') {
+                const c = config.channels?.feishu;
+                identity = resolveFeishuCreds(cwd, (c ?? {})).appId;
+                sharedCred = !c?.appId && !c?.credsFile && !projHas('feishu-app.json') && homeHas('feishu-app.json');
+            }
+            else if (channel === 'wecom') {
+                const c = config.channels?.wecom;
+                identity = resolveWeComCreds(cwd, (c ?? {})).corpId;
+                sharedCred = !c?.corpId && !c?.credsFile && !projHas('wecom-app.json') && homeHas('wecom-app.json');
+            }
+            else if (channel === 'wecom_bot') {
+                const c = config.channels?.wecom_bot;
+                identity = resolveWeComBotCreds(cwd, (c ?? {})).botId;
+                sharedCred = !c?.botId && !c?.secret && !projHas('wecom-bot.json') && homeHas('wecom-bot.json');
+            }
+            if (!identity)
+                return undefined; // no credential yet: lease stays channel-scoped (same project only)
+            if (sharedCred) {
+                // No global state is created for this: it is a read-only hint. The
+                // hazard is real though — two projects sharing one bot split events.
+                log('warn', `channel ${channel}: credentials resolved from ~/.dsh (shared); ` +
+                    'the same bot must not be connected from two projects at once (double WS splits events)');
+            }
+            return createHash('sha256').update(String(identity)).digest('hex').slice(0, 12);
+        }
+        catch {
+            return undefined;
+        }
+    };
     const connectChannel = async (channel) => {
         const lease = leases.get(channel);
         if (lease) {
@@ -544,8 +595,11 @@ function applyInner(ctx, config, artifacts) {
         for (const chName of adapters.keys()) {
             const lease = new ChannelLease({
                 channel: chName,
+                accountKey: accountKeyOf(chName),
                 role: instanceRole,
-                dir: config.lease?.dir ? expandHome(config.lease.dir) : undefined,
+                // Leases live WITH the project (credentials and state are project-level):
+                // two projects must never block each other; same-project windows still do.
+                dir: config.lease?.dir ? expandHome(config.lease.dir) : projStateDir(bridge.cwdOf()),
                 ttlMs: config.lease?.ttlMs,
                 heartbeatMs: config.lease?.heartbeatMs,
                 log: config.log,

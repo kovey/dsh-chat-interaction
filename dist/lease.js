@@ -2,11 +2,16 @@
  * Channel lease — heartbeat takeover between a 24×7 headless service and an
  * interactive (TUI) session.
  *
- * Only ONE process may own a channel's connection at a time (two WS listeners
- * on the same bot would double-deliver every message). The lease is a small
- * JSON file in the DSH home:
+ * Only ONE process may own a **bot** connection at a time (two WS listeners on
+ * the same bot would double-deliver every message). The lease identity is
+ * therefore the ACCOUNT (bot), not the channel name: credentials are resolved
+ * per project first (`<project>/.dsh/feishu-app.json` → `~/.dsh/...` → env), so
+ * two projects with different bots must not block each other while the same bot
+ * across projects still must. The file lives in the shared DSH home (cross-
+ * process exclusion) but is keyed by channel + account fingerprint:
  *
- *   ~/.dsh/chat-interaction-lease-<channel>.json
+ *   ~/.dsh/chat-interaction-lease-<channel>-<accountKey>.json
+ *   ~/.dsh/chat-interaction-lease-<channel>.json            (legacy / no account)
  *   { owner, role, pid, host, heartbeatAt, acquiredAt }
  *
  * Rules:
@@ -50,6 +55,7 @@ export class ChannelLease {
     dir;
     now;
     log;
+    accountKey;
     timer = null;
     lostHandler = null;
     acquiredHandler = null;
@@ -58,6 +64,7 @@ export class ChannelLease {
     lastRenewAt = 0;
     constructor(opts) {
         this.channel = opts.channel;
+        this.accountKey = opts.accountKey ? String(opts.accountKey).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) : undefined;
         this.role = opts.role;
         this.instanceId = opts.instanceId || `${os.hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
         this.ttlMs = opts.ttlMs ?? DEFAULTS.ttlMs;
@@ -67,12 +74,20 @@ export class ChannelLease {
         this.log = opts.log || defaultLog;
     }
     get file() {
+        const suffix = this.accountKey ? `-${this.accountKey}` : '';
+        return path.join(this.dir, `chat-interaction-lease-${this.channel}${suffix}.json`);
+    }
+    /** Pre-account-scoped lease (channel name only); watched for migration safety. */
+    get legacyFile() {
         return path.join(this.dir, `chat-interaction-lease-${this.channel}.json`);
     }
-    /** The lease currently on disk (null when free/unreadable). */
-    read() {
+    /** Human-readable identity used in logs/errors. */
+    get scope() {
+        return this.accountKey ? `channel ${this.channel} (account ${this.accountKey})` : `channel ${this.channel}`;
+    }
+    readFrom(file) {
         try {
-            const raw = fs.readFileSync(this.file, 'utf8');
+            const raw = fs.readFileSync(file, 'utf8');
             const j = JSON.parse(raw);
             if (!j || typeof j.owner !== 'string' || typeof j.heartbeatAt !== 'number')
                 return null;
@@ -88,6 +103,10 @@ export class ChannelLease {
         catch {
             return null;
         }
+    }
+    /** The lease currently on disk (null when free/unreadable). */
+    read() {
+        return this.readFrom(this.file);
     }
     /** True when the on-disk lease is absent or its heartbeat is stale. */
     isFree(state = this.read()) {
@@ -111,6 +130,35 @@ export class ChannelLease {
      * services only take a free lease.
      */
     acquire() {
+        // Migration safety: an older version wrote a channel-scoped lease with no
+        // account identity. While that holder is still alive (fresh heartbeat) we
+        // must NOT take the account lease — it may be the same bot and we would
+        // end up with two WS listeners (split/lost events).
+        if (this.accountKey) {
+            const legacy = this.readFrom(this.legacyFile);
+            if (legacy && legacy.owner !== this.instanceId && !this.isFree(legacy)) {
+                this.held = null;
+                return {
+                    ok: false,
+                    holder: legacy,
+                    reason: `${this.scope} is blocked by a legacy channel-scoped lease held by ` +
+                        `${legacy.role} ${legacy.owner} (heartbeat ${Math.round((this.now() - legacy.heartbeatAt) / 1000)}s ago); ` +
+                        `upgrade the other instance or wait for it to release`,
+                };
+            }
+        }
+        // Migration hint (read-only): the previous release kept the lease in the
+        // shared DSH home. If such a file is still fresh, another (old) window is
+        // probably still connected to this bot — warn instead of blocking, so
+        // project isolation is never traded back for a cross-project lock.
+        if (this.accountKey && path.resolve(this.dir) !== path.resolve(dshHome())) {
+            const old = this.readFrom(path.join(dshHome(), `chat-interaction-lease-${this.channel}.json`));
+            if (old && old.owner !== this.instanceId && !this.isFree(old)) {
+                this.log('warn', `lease: legacy GLOBAL lease for channel ${this.channel} is still active ` +
+                    `(${old.role} ${old.owner}, heartbeat ${Math.round((this.now() - old.heartbeatAt) / 1000)}s ago); ` +
+                    'close that older window — two listeners on one bot split incoming events');
+            }
+        }
         const holder = this.read();
         if (holder && holder.owner === this.instanceId) {
             this.held = holder;
@@ -124,7 +172,7 @@ export class ChannelLease {
             return {
                 ok: false,
                 holder,
-                reason: `channel ${this.channel} is owned by ${holder.role} ${holder.owner} ` +
+                reason: `${this.scope} is owned by ${holder.role} ${holder.owner} ` +
                     `(heartbeat ${Math.round((this.now() - holder.heartbeatAt) / 1000)}s ago)`,
             };
         }
@@ -141,13 +189,13 @@ export class ChannelLease {
         this.want = true;
         this.lastRenewAt = state.heartbeatAt;
         if (preempt) {
-            this.log('info', `lease: preempted ${holder.role} ${holder.owner} on channel ${this.channel} (interactive priority)`);
+            this.log('info', `lease: preempted ${holder.role} ${holder.owner} on ${this.scope} (interactive priority)`);
         }
         else if (holder) {
-            this.log('info', `lease: took over stale lease of ${holder.owner} on channel ${this.channel}`);
+            this.log('info', `lease: took over stale lease of ${holder.owner} on ${this.scope}`);
         }
         else {
-            this.log('info', `lease: acquired channel ${this.channel} as ${this.role}`);
+            this.log('info', `lease: acquired ${this.scope} as ${this.role}`);
         }
         return { ok: true, holder: state, preempted: preempt };
     }

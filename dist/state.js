@@ -39,7 +39,13 @@ export function projStateDir(cwd = process.cwd()) {
     }
     catch { /* not a repo */ }
     const localDsh = path.join(cwd, '.dsh');
-    return fs.existsSync(localDsh) ? localDsh : path.join(cwd, '.claude');
+    const localClaude = path.join(cwd, '.claude');
+    if (fs.existsSync(localDsh))
+        return localDsh;
+    // Legacy compatibility ONLY: an existing .claude project keeps its state there.
+    if (fs.existsSync(localClaude))
+        return localClaude;
+    return localDsh; // new projects get .dsh (never silently create .claude)
 }
 export function inGitRepo(cwd = process.cwd()) {
     try {
@@ -84,8 +90,11 @@ export function statePaths(channel, cwd = process.cwd(), cfg = {}) {
         approvers: path.join(proj, `${channel}-approvers.txt`),
         /** Append-only JSONL of every approval decision (who/when/which card). */
         approvalLedger: path.join(proj, `${channel}-approvals.jsonl`),
-        cardStore: expandHome(cfg.cardStoreDir || `~/.dsh/${channel}-cards`),
-        globalActiveChat: path.join(dshHome(), `${channel}-active-chat.txt`),
+        /**
+         * Card spool used to rebuild a clicked card. Project-scoped: two projects
+         * (even with the same bot) must not read each other's cards.
+         */
+        cardStore: expandHome(cfg.cardStoreDir || path.join(proj, `${channel}-cards`)),
         /** Downloaded inbound images — per project AND per channel. */
         mediaDir: path.join(proj, `${channel}-media`),
         /** Task-active marker dir — per project AND per channel. */
@@ -96,17 +105,10 @@ export function statePaths(channel, cwd = process.cwd(), cfg = {}) {
 export function writeActiveChat(paths, chatId, cwd = process.cwd()) {
     if (!chatId)
         return;
-    try {
-        fs.writeFileSync(paths.activeChat, chatId + '\n');
-    }
-    catch { /* best effort */ }
-    // Only non-repo contexts may write the GLOBAL file (multi-project isolation).
-    if (!inGitRepo(cwd)) {
-        try {
-            fs.writeFileSync(paths.globalActiveChat, chatId + '\n');
-        }
-        catch { /* best effort */ }
-    }
+    void cwd; // kept for signature compatibility; state is project-local only
+    // Project-local only — a global slot gets overwritten by other projects and
+    // leaks consent (multi-project isolation).
+    writeFileSafe(paths.activeChat, chatId + '\n');
 }
 export function readFileSafe(p) {
     try {

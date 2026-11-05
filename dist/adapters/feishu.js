@@ -312,7 +312,9 @@ export class FeishuChannel extends BaseChannel {
         return this.lark;
     }
     cardStoreDir(cwd) {
-        return expandHome(this.cfg.cardStoreDir || `~/.dsh/${this.name}-cards`);
+        // Project-scoped by default: a card click must resolve against the cards
+        // THIS project sent (two projects sharing a bot must not cross-read).
+        return expandHome(this.cfg.cardStoreDir || path.join(projStateDir(cwd), `${this.name}-cards`));
     }
     mediaDir(cwd) {
         if (typeof this.cfg.mediaDir === 'function')
@@ -488,7 +490,7 @@ export class FeishuChannel extends BaseChannel {
                 return {};
             }
             // Rebuild the card so the click visibly sticks.
-            const updatedCard = buildUpdatedCard(this.cardStoreDir(process.cwd()), String(c.open_message_id || ''), choice);
+            const updatedCard = buildUpdatedCard(this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd()), String(c.open_message_id || ''), choice);
             const cardResponse = (toastContent) => {
                 const resp = { toast: { type: 'success', content: toastContent } };
                 if (updatedCard)
@@ -579,7 +581,7 @@ export class FeishuChannel extends BaseChannel {
         if (!messageId)
             return;
         try {
-            const dir = this.cardStoreDir(process.cwd());
+            const dir = this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd());
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(path.join(dir, messageId + '.json'), JSON.stringify({ title, body: body || '', buttons: buttons || [] }));
             pruneOldFiles(dir, this.cfg.cardStoreTtlMs);

@@ -9,8 +9,14 @@ export interface LeaseState {
     acquiredAt: number;
 }
 export interface LeaseOptions {
-    /** Channel name the lease protects (feishu / wecom / ...). */
+    /** Channel name the lease protects (feishu / wecom / wecom_bot / ...). */
     channel: string;
+    /**
+     * Short fingerprint of the bot this instance connects to (e.g. sha256(appId)
+     * first 12 hex). Two projects with different bots get different leases;
+     * the same bot keeps a single owner. Omitted → legacy channel-scoped lease.
+     */
+    accountKey?: string;
     /** This process's role. */
     role: InstanceRole;
     /** Lease directory; default the DSH home. */
@@ -43,6 +49,7 @@ export declare class ChannelLease {
     private readonly dir;
     private readonly now;
     private readonly log;
+    private readonly accountKey?;
     private timer;
     private lostHandler;
     private acquiredHandler;
@@ -51,6 +58,11 @@ export declare class ChannelLease {
     private lastRenewAt;
     constructor(opts: LeaseOptions);
     get file(): string;
+    /** Pre-account-scoped lease (channel name only); watched for migration safety. */
+    get legacyFile(): string;
+    /** Human-readable identity used in logs/errors. */
+    private get scope();
+    private readFrom;
     /** The lease currently on disk (null when free/unreadable). */
     read(): LeaseState | null;
     /** True when the on-disk lease is absent or its heartbeat is stale. */

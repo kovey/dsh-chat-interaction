@@ -47,6 +47,8 @@ export interface FeishuChannelConfig {
     /** Where sent-card stashes live (message_id-keyed JSON). */
     cardStoreDir?: string;
     cardStoreTtlMs?: number;
+    /** Project cwd resolver (the plugin passes the session's cwd; default process.cwd()). */
+    cwdOf?: () => string;
     /** Download dir for inbound images; default `<project>/.dsh/feishu-media`. */
     mediaDir?: string | (() => string);
     mediaRetentionDays?: number;

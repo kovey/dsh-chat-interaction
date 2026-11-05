@@ -40,7 +40,7 @@ const ROUTER_DEFAULTS = {
     autoDisambiguation: true,
     chatTimeoutMs: 30_000,
     chatHistoryTurns: 10,
-    chatDir: '~/.dsh/chat-history',
+    chatDir: '', // empty = project-scoped (`<project>/.dsh/chat-history`)
     taskActiveTtlMs: 8 * 60 * 60 * 1000,
     autoTaskMarker: true,
     maxTaskMs: 12 * 60 * 60 * 1000,
@@ -296,7 +296,12 @@ export function createRouter(deps) {
         }
         return true;
     };
-    const chatHistoryPath = (channel, chatId) => path.join(expandHome(cfg.chatDir), channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+    const chatHistoryPath = (channel, chatId) => {
+        // Conversation memory belongs to the project that owns it: a global slot
+        // leaks one project's chat history into another (and mixes same-bot chats).
+        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(projStateDir(cwdOf()), 'chat-history');
+        return path.join(base, channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+    };
     const loadHistory = (channel, chatId) => {
         try {
             const j = JSON.parse(fs.readFileSync(chatHistoryPath(channel, chatId), 'utf8'));

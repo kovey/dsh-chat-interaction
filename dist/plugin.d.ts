@@ -87,7 +87,10 @@ export interface PluginConfig {
     /** Adapters for platforms beyond the built-ins, e.g. { dingtalk: (cfg) => ... }. */
     channelFactories?: Record<string, ChannelFactory>;
     /**
-     * Channel lease: only one instance owns a channel's connection at a time.
+     * Channel lease: only one instance owns a **bot's** connection at a time.
+     * The lease is keyed by channel + an account fingerprint derived from the
+     * resolved credentials (per project first), so two projects with different
+     * bots never block each other while the same bot stays exclusive.
      * An `interactive` (TUI) instance preempts a `service` (24×7 headless)
      * holder; the service takes the channel back once the TUI releases or its
      * heartbeat expires — the launchd-service ⇄ TUI heartbeat takeover.

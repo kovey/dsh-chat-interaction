@@ -52,8 +52,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.3.0）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.0
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.3.1）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.1
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -339,7 +339,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.3.0` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.3.1` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
@@ -514,7 +514,18 @@ class DingChannel extends BaseChannel {
 ## 24×7 与心跳接管（lease）
 
 同一层可以同时部署在**两个地方**：launchd/systemd 常驻的 headless 服务，和你在用的 TUI 会话。
-两个进程都连同一个机器人会**双投递**每条消息，所以渠道连接由**租约**仲裁：
+两个进程都连同一个机器人会**双投递/分流**消息，所以连接由**租约**仲裁 —— 租约放在**项目内**：
+
+```
+<项目>/.dsh/chat-interaction-lease-<channel>-<accountKey>.json
+accountKey = sha256(appId | corpId | botId).slice(0, 12)
+```
+
+- **项目之间天然隔离**：两个项目各连自己的机器人（哪怕同一个渠道名）互不阻塞
+- **同一项目内**按「渠道 + 机器人」互斥：同一个 bot 只能有一个监听器（双 WS 会分流丢消息）
+- 凭据/状态/对话记忆都在 `<项目>/.dsh/`（`globalActiveChat` 这类全局回退已删除）
+- 若凭据来自 `~/.dsh/feishu-app.json` 的**全局回退**（多个项目共享同一 bot），启动时会打一条
+  warn 提示：同一机器人不要同时从两个项目连接
 
 ```
 ~/.dsh/chat-interaction-lease-<渠道>.json
