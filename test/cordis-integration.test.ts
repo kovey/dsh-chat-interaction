@@ -84,7 +84,7 @@ test('harnessFromCordis maps every host service onto the flat contract', () => {
     assert.equal(state.effects.length, 1, 'teardown goes through ctx.effect (cordis v4)')
     harness.on!('tools/pre-execute', () => undefined)
     assert.equal(state.listeners.has('tools/pre-execute'), true)
-    harness.provide!('chatInteraction', { ok: true }, true)
+    harness.provide!('chatInteraction', { ok: true })
     assert.equal(state.provided.has('chatInteraction'), true)
 })
 

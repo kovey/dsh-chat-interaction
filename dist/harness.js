@@ -119,8 +119,33 @@ export function harnessFromCordis(ctx) {
         on: (event, listener) => {
             safely(() => ctx?.on?.(event, listener), undefined);
         },
-        provide: (key, value, override) => {
-            safely(() => ctx?.provide?.(key, value, override), undefined);
+        /**
+         * Export a service. cordis signature: provide(name, value, check?) — the
+         * third argument is an availability PREDICATE, not an override flag.
+         * Passing a boolean there makes _checkImpl throw internally, the service
+         * is deleted from every consumer's store, and `ctx.inject([name], cb)`
+         * never fires (while `ctx.get(name)` still works — a get() probe cannot
+         * see it). Therefore: never pass a third argument, and do not swallow the
+         * failure — dependents would wait forever.
+         */
+        provide: (key, value) => {
+            let target;
+            try {
+                target = ctx?.provide;
+            }
+            catch {
+                return; // hostile interceptor: even reading the property throws
+            }
+            if (typeof target !== 'function')
+                return; // older host without provide: keep going
+            try {
+                target.call(ctx, key, value);
+            }
+            catch (e) {
+                // Loud but contained: dependents wait forever, yet throwing here
+                // would fail the whole apply (no channel at all). Crash-proof wins.
+                defaultLog('error', `provide("${key}") failed:`, e.message);
+            }
         },
     };
 }
@@ -235,14 +260,24 @@ export class DshBridge {
             }
         }
     }
-    provide(key, value, override = false) {
-        if (typeof this.ctx.provide === 'function') {
-            try {
-                this.ctx.provide(key, value, override);
-            }
-            catch (e) {
-                this.log('warn', 'provide failed:', e.message);
-            }
+    provide(key, value) {
+        let target;
+        try {
+            target = this.ctx?.provide;
+        }
+        catch {
+            return; // hostile interceptor: even reading the property throws
+        }
+        if (typeof target !== 'function')
+            return;
+        try {
+            // See the object-literal implementation above: never pass the third
+            // (check) argument — a boolean there silently breaks ctx.inject.
+            ;
+            this.ctx.provide(key, value);
+        }
+        catch (e) {
+            this.log('error', `provide("${key}") failed:`, e.message);
         }
     }
     /**

@@ -45,7 +45,7 @@ export interface HarnessContext {
     /** Optional waterfall events (tools/pre-execute, approval/request). */
     on?(event: string, listener: (...args: any[]) => unknown): void;
     /** Optional service export. */
-    provide?(key: string, value: unknown, override?: boolean): void;
+    provide?(key: string, value: unknown): void;
 }
 /**
  * True when the value already implements the flat HarnessContext contract
@@ -131,7 +131,7 @@ export declare class DshBridge {
     promptSection(name: string, text: string, order?: number): void;
     onDispose(cleanup: () => void): void;
     on(event: string, listener: (...args: any[]) => unknown): void;
-    provide(key: string, value: unknown, override?: boolean): void;
+    provide(key: string, value: unknown): void;
     /**
      * Deliver one inbound message to the agent as an ordinary user turn.
      * When `ctx.score` carries a model, a transient model override is applied

@@ -89,7 +89,7 @@ export interface HarnessContext {
     /** Optional waterfall events (tools/pre-execute, approval/request). */
     on?(event: string, listener: (...args: any[]) => unknown): void
     /** Optional service export. */
-    provide?(key: string, value: unknown, override?: boolean): void
+    provide?(key: string, value: unknown): void
 }
 
 /**
@@ -184,8 +184,30 @@ export function harnessFromCordis(ctx: CordisContextLike | null | undefined): Ha
         on: (event: string, listener: (...args: any[]) => unknown) => {
             safely(() => ctx?.on?.(event, listener), undefined)
         },
-        provide: (key: string, value: unknown, override?: boolean) => {
-            safely(() => ctx?.provide?.(key, value, override), undefined)
+        /**
+         * Export a service. cordis signature: provide(name, value, check?) — the
+         * third argument is an availability PREDICATE, not an override flag.
+         * Passing a boolean there makes _checkImpl throw internally, the service
+         * is deleted from every consumer's store, and `ctx.inject([name], cb)`
+         * never fires (while `ctx.get(name)` still works — a get() probe cannot
+         * see it). Therefore: never pass a third argument, and do not swallow the
+         * failure — dependents would wait forever.
+         */
+        provide: (key: string, value: unknown) => {
+            let target: ((k: string, v: unknown) => void) | undefined
+            try {
+                target = (ctx as { provide?: (k: string, v: unknown) => void } | null | undefined)?.provide
+            } catch {
+                return // hostile interceptor: even reading the property throws
+            }
+            if (typeof target !== 'function') return // older host without provide: keep going
+            try {
+                target.call(ctx, key, value)
+            } catch (e) {
+                // Loud but contained: dependents wait forever, yet throwing here
+                // would fail the whole apply (no channel at all). Crash-proof wins.
+                defaultLog('error', `provide("${key}") failed:`, (e as Error).message)
+            }
         },
     }
 }
@@ -303,11 +325,20 @@ export class DshBridge {
         }
     }
 
-    provide(key: string, value: unknown, override = false): void {
-        if (typeof this.ctx.provide === 'function') {
-            try { this.ctx.provide(key, value, override) } catch (e) {
-                this.log('warn', 'provide failed:', (e as Error).message)
-            }
+    provide(key: string, value: unknown): void {
+        let target: ((k: string, v: unknown) => void) | undefined
+        try {
+            target = (this.ctx as { provide?: (k: string, v: unknown) => void } | null | undefined)?.provide
+        } catch {
+            return // hostile interceptor: even reading the property throws
+        }
+        if (typeof target !== 'function') return
+        try {
+            // See the object-literal implementation above: never pass the third
+            // (check) argument — a boolean there silently breaks ctx.inject.
+            ;(this.ctx as { provide: (k: string, v: unknown) => void }).provide(key, value)
+        } catch (e) {
+            this.log('error', `provide("${key}") failed:`, (e as Error).message)
         }
     }
 

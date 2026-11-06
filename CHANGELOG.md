@@ -5,6 +5,30 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.2] - 2026-11-06
+
+### 修复 —— cordis `provide` 第三参导致 chatInteraction 服务无法被 inject
+
+- **症状**：其他插件用 `ctx.inject(['chatInteraction'], cb)` 等待本插件时，回调**永不触发**
+  （`interaction_status` 报 `phase=absent:从未出现`），而 `ctx.get('chatInteraction')` 能取到值 ——
+  "一次性 get 探测"完全看不出问题。
+- **根因**：cordis 4.0.5 的签名是 `provide(name, value, check?)`，第三个参数是**可用性谓词**
+  （check），不是 override 开关。本插件传了 `true` → `_checkImpl` 执行 `impl.check.call(...)`
+  → TypeError → 被 catch → 该依赖从消费者 store 删除 → `inject` 永不满足。
+- **修复**：`harnessFromCordis.provide` 只透传 `(key, value)`（注释明确禁止第三参）；
+  `apply()` 的调用点去掉 `true`。真实 cordis 4.0.5 实测：
+  传 `true` → `inject fired=0`；不传 → `fired=1`；传 `() => true` → `fired=1`
+  （三种情况下 `ctx.get` 都可用，所以必须用 inject 验证）。
+- **可观测性**：provide 失败不再被 `safely()` 静默吞掉 —— 记 error 级日志（含 key 与原因），
+  但保持**降级不抛**（抛出会让 apply 整体失败、连渠道都不可用）；对敌意 ctx（属性访问即抛）
+  也做了防御。
+- **测试**：新增 `test/provide-contract.test.ts`（4 项，**真实 cordis Context**）：
+  apply 后 `ctx.inject(['chatInteraction'])` 必须触发、`harness.provide` 只透传两参、
+  provide 失败记 error 且不抛、宿主无 provide 方法时静默。修复前该测试失败
+  （`fired=0` / `Missing expected exception`），修复后通过。套件 223 → 227。
+- 既有的 `test/cordis-integration.test.ts` 用假 ctx 桩（`provide: (key, value) => …` 会忽略第三参），
+  这正是该缺陷长期未被发现的原因；现补真实 Context 回归。
+
 ## [0.3.1] - 2026-11-05
 
 ### 修复 —— 状态作用域审计（该在项目里的都放回项目）
@@ -343,6 +367,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.2
 [0.3.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.0
 [0.2.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.2.2

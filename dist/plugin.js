@@ -653,7 +653,7 @@ function applyInner(ctx, config, artifacts) {
     };
     log('info', 'registering service export (chatInteraction)…');
     if (typeof harness.provide === 'function') {
-        harness.provide('chatInteraction', layer, true);
+        harness.provide('chatInteraction', layer); // no third arg: it is cordis' check predicate
     }
     else {
         try {
