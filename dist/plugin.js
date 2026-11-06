@@ -26,6 +26,7 @@ import { descriptorOf } from './channel.js';
 import { PendingStore } from './pending.js';
 import { askViaChannel, resolveContainedPath, setupAuthorization } from './approval.js';
 import { commandRegistryOf, createChatApi } from './api.js';
+import { clearModelCatalogCache } from './model-catalog.js';
 import { applyScoreConfig, createScorer, resolveScoringConfig } from './scoring.js';
 import { readModelCatalog, reportDropped, sanitizeModelOverride } from './model-catalog.js';
 import { createRouter, resolveRouterConfig } from './router.js';
@@ -463,6 +464,12 @@ function applyInner(ctx, config, artifacts) {
         return bridge.cwdOf();
     };
     const channelOfAgent = (agent) => (agent && agent.id ? origin.get(agent.id)?.channel : undefined) || adapters.keys().next().value || 'feishu';
+    // dsh 0.2.2: the host announces model-catalog reloads; drop our guard cache so a
+    // model added/removed in settings.yaml takes effect without waiting for the TTL.
+    harness.on?.('llm/models-updated', () => {
+        clearModelCatalogCache();
+        log('info', 'model catalog cache cleared (llm/models-updated)');
+    });
     setupAuthorization(bridge, {
         log: config.log || log,
         readMode: (agent) => {

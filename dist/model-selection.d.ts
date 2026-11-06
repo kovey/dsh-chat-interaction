@@ -1,11 +1,10 @@
-import type { ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent';
+import type { Model, ModelSelection } from '@deepseek-ai/dsh-agent';
 import type { HarnessAgent } from './harness.js';
 import type { LogFn } from './log.js';
-export type { ModelSelection, ModelSelectionRef };
+export type { Model, ModelSelection };
 /**
- * Our convenience override shape: provider/reasoningEffort are optional
- * because the official runtime injects them conditionally — a model-only
- * override keeps the agent's default provider route and effort.
+ * Our convenience override shape: provider/reasoningEffort stay optional so a
+ * model-only override keeps the agent's current route and effort.
  */
 export interface ModelOverride {
     provider?: string;
@@ -26,36 +25,44 @@ export declare class ModelSelectionManager {
     private readonly restorePollMs;
     private readonly maxIdlePolls;
     private readonly restoreOnTurnEnd;
-    private readonly refs;
+    /** Agent-owned model seam, resolved per agent id. */
+    private readonly models;
+    /** The agent objects, kept so `restoreAll()` can read their default route. */
+    private readonly agents;
+    /** Agents whose next step currently carries our override. */
+    private readonly armed;
+    /** Official pre-step switch-notice listeners (one per agent context). */
     private readonly disposers;
     private readonly pollers;
     private readonly lastSeq;
     private readonly idlePolls;
     /** True while the poller waits for the scored turn to actually START. */
     private readonly awaitingTurnStart;
+    /** Warn once per agent about a host without the model seam. */
+    private readonly warned;
     constructor(opts?: ModelSelectionManagerOptions);
+    /** The agent's own default route (its live options), or null. */
+    private defaultOf;
     /**
-     * Install the official selection ref onto the agent-scoped context
-     * (idempotent per agent). Agents without a context just track the ref
-     * locally — the override is recorded but cannot influence requests.
+     * Resolve the agent-owned model seam (idempotent per agent). Also installs
+     * the official pre-step switch-notice listener on the agent context.
+     * @returns the handle, or undefined when the host predates dsh 0.2.2.
      */
-    private ensureInstalled;
+    private handle;
+    /** Select a complete route (`null` = restore the agent's own default). */
+    private select;
     /**
-     * Apply an override for the agent's next step, or null to clear it.
-     * When `restoreOnTurnEnd`, a poller watches the session log: it first
-     * waits for the scored turn to START (`turn/start`), then restores the
-     * default when that turn ENDS (`turn/end`). Waiting for the start first
-     * matters when the scored followup is queued behind another running
-     * turn — without it, the earlier turn's `turn/end` would clear the
-     * override before the scored turn ever began.
-     *
-     * Remaining approximation: a LOCAL (TUI) turn interleaved between the
-     * override and the scored turn is attributed to the scored turn. The
-     * idle safety timer bounds the exposure (default 60 polls ≈ 2 min).
+     * Apply an override for the agent's next step, or null to restore the default.
+     * When `restoreOnTurnEnd`, a poller watches the session log: it first waits
+     * for the scored turn to START (`turn/start`), then restores the default when
+     * that turn ENDS (`turn/end`). Waiting for the start matters when the scored
+     * followup is queued behind another running turn.
      */
     override(agent: HarnessAgent, selection: ModelOverride | null): void;
+    /** Disarm one agent and restore its default route. */
+    private restore;
     private stopPoller;
-    /** Clear every override immediately. */
+    /** Clear every override immediately (restoring each agent's default route). */
     restoreAll(): void;
     /** True when an override is currently armed for the agent. */
     hasOverride(agentId: string): boolean;

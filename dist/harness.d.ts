@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis';
+import type { Model } from '@deepseek-ai/dsh-agent';
 import type { LogFn } from './log.js';
 import { ModelSelectionManager } from './model-selection.js';
 import type { ModelSelectionManagerOptions } from './model-selection.js';
@@ -16,9 +17,17 @@ import type { ToolSpec } from './tools.js';
 export interface HarnessAgent {
     id: string;
     followup(message: unknown): unknown;
-    /** Agent-scoped context (official model-selection install target). */
+    /** Agent-scoped context (official model-selection notice install target). */
     ctx?: Context;
     session?: SessionEventsSource;
+    /** Agent-owned model seam (dsh 0.2.2+): `current()` / `select()`. */
+    model?: Model;
+    /** Live route options — the fallback/default when the model seam is absent. */
+    options?: {
+        provider?: string;
+        model?: string;
+        reasoningEffort?: string;
+    };
 }
 /**
  * The context slice the bridge needs — the verified cordis v4 extension

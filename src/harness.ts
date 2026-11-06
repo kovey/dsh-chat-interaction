@@ -23,6 +23,7 @@ import path from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Model } from '@deepseek-ai/dsh-agent'
 import * as cordisRuntime from '@deepseek-ai/cordis'
 import { dshHome } from './state.js'
 import { log as defaultLog } from './log.js'
@@ -63,9 +64,13 @@ const ContextRef: { is?: (v: unknown) => boolean } = (() => {
 export interface HarnessAgent {
     id: string
     followup(message: unknown): unknown
-    /** Agent-scoped context (official model-selection install target). */
+    /** Agent-scoped context (official model-selection notice install target). */
     ctx?: Context
     session?: SessionEventsSource
+    /** Agent-owned model seam (dsh 0.2.2+): `current()` / `select()`. */
+    model?: Model
+    /** Live route options — the fallback/default when the model seam is absent. */
+    options?: { provider?: string; model?: string; reasoningEffort?: string }
 }
 
 /**

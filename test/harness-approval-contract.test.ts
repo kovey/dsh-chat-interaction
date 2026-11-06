@@ -71,6 +71,12 @@ async function runRequest(opts: {
     })
 
     const svc = new ApprovalService!(ctx, { policy: 'ask' })
+    // dsh 0.2.2: ApprovalService registers a session projection in [Service.init];
+    // a bare construction skips it, so stub the handle — these tests exercise the
+    // real decide()/normalisation path, not the projection machinery.
+    ;(svc as unknown as { approvalProjectionHandle: unknown }).approvalProjectionHandle = {
+        stateOf: () => ({ policy: null, turnOpen: true }),
+    }
     const agent = { id: 'a1', session, ctx }
     const outcome = (await svc.request({ agent, toolName: 'spec_approve', reason: '规格审批' })) as string
     return { outcome, decided: appended.find((a) => a.type === 'approval/decided')?.data?.outcome as string, logs }

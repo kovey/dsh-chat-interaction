@@ -5,6 +5,30 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.3] - 2026-11-06
+
+### 适配 DSH v0.2.2-rc.1（跨 0.2.1-rc.3/rc.4/rc.5 与 0.2.2-alpha.2/alpha.3）
+
+- devDeps → **0.2.2-rc.1**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）+
+  **cordis 4.0.5 → 4.1.0**
+- peer → **`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-rc.1`**（覆盖 0.2.0 / 0.2.1 / 0.2.2 三条 rc 线
+  与 0.2.x 稳定版；0.3.x 排除）
+- **模型选择接缝重构**（0.2.2 破坏性变化）：`ModelSelectionRef` 移除；改为 agent 自持
+  `agent.model.current()` / `agent.model.select({ provider, model, reasoningEffort })`，
+  `installModelSelection(agentCtx)` 只安装 pre-step 切换通知监听。`src/model-selection.ts` 已改为：
+  完整选择（缺省 provider/model 取 agent options 或当前选择）、未知 effort 丢弃、
+  回合结束用 agent options 恢复默认、无 seam 的旧宿主只告警（策略降级）
+- 核实（0.2.1-rc.2 → 0.2.2-rc.1）：
+  - 0.2.1-rc.2 → rc.5 无依赖变化；0.2.2-alpha.2 起新增 `dsh-official-bundles`、
+    `dsh-experimental-forge-bundle`、`dsh-experimental-liveshare`、`dsh-personalized-recommendations`
+    （`dsh-cua-bundle` 在 alpha.3 移除）；`schemastery` → 3.19.0
+  - **cordis 4.1.0**：公开导出零变化（类型仅内部字段调整）
+  - `dsh-tools` 拆出 `contracts` 并新增 `projectToolSchema`；`dsh-llm` 新增 `llm/models-updated`
+    事件与 `LlmModelBadge`；`dsh-user-approval` 改为注入 `sessionProjections`
+    —— 审批契约测试补 projection handle 桩（仍覆盖真实 decide()/归一化路径）
+- 测试：model-selection 测试改为断言 `agent.model.select`；plugin 评分测试改用新接缝；
+  套件 228/228 通过（含真实 cordis 4.1.0 Context 与真实 0.2.2-rc.1 服务）
+
 ## [0.3.2] - 2026-11-06
 
 ### 修复 —— cordis `provide` 第三参导致 chatInteraction 服务无法被 inject
@@ -367,6 +391,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.3
 [0.3.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.2
 [0.3.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.0

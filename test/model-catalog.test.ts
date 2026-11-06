@@ -67,6 +67,29 @@ test('readModelCatalog reads a file and degrades to null when missing', () => {
     assert.equal(readModelCatalog({ settingsFile: path.join(dir, 'nope.yaml'), ttlMs: 0 }), null)
 })
 
+test('cache invalidation: a rebuilt settings.yaml is re-read after clearModelCatalogCache()', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-cat-refresh-'))
+    const file = path.join(home, 'settings.yaml')
+    fs.writeFileSync(file, [
+        'llm-official:',
+        '  models:',
+        '    - id: model-a',
+    ].join('\n'))
+    const first = readModelCatalog({ settingsFile: file, ttlMs: 60_000 })
+    assert.ok(first && first.models.includes('model-a'))
+
+    // rewrite the file; the TTL keeps the old value ...
+    fs.writeFileSync(file, ['llm-official:', '  models:', '    - id: model-b'].join('\n'))
+    const cached = readModelCatalog({ settingsFile: file, ttlMs: 60_000 })
+    assert.ok(cached && cached.models.includes('model-a'), 'still cached inside the TTL')
+
+    // ... until the host announces a reload (llm/models-updated → this hook)
+    clearModelCatalogCache()
+    const refreshed = readModelCatalog({ settingsFile: file, ttlMs: 60_000 })
+    assert.ok(refreshed && refreshed.models.includes('model-b'))
+    assert.equal(refreshed.models.includes('model-a'), false)
+})
+
 test('sanitizeModelOverride drops an unknown model (and its provider/effort)', () => {
     const catalog = parseSettingsCatalog(REAL_SETTINGS)!
     // the exact bug this guard exists for: README used deepseek-reasoner

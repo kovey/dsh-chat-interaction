@@ -38,6 +38,21 @@ class DingChannel extends BaseChannel {
     }
 }
 
+/** Records the selections the plugin makes through dsh 0.2.2's `agent.model`. */
+class FakeModel {
+    readonly selects: Array<{ provider: string; model: string; reasoningEffort?: string }> = []
+    constructor(private readonly fallback: { provider: string; model: string }) {}
+    current() {
+        return this.selects[this.selects.length - 1] ?? { ...this.fallback }
+    }
+    select(selection: { provider: string; model: string; reasoningEffort?: string }) {
+        this.selects.push({ ...selection })
+    }
+    get last() {
+        return this.selects[this.selects.length - 1]
+    }
+}
+
 interface RegisteredTool {
     name: string
     parameters: unknown
@@ -51,8 +66,10 @@ class FakeContext implements HarnessContext {
     disposals: Array<() => void> = []
     followups: string[] = []
     provided: Record<string, unknown> = {}
-    /** REAL cordis Context — the official installModelSelection seam needs it. */
+    /** REAL cordis Context — the official installModelSelection notice needs it. */
     readonly agentCtx = new Context()
+    /** Agent-owned model seam (dsh 0.2.2+). */
+    readonly model = new FakeModel({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
     private readonly agent: HarnessAgent
 
     constructor(cwd: string) {
@@ -64,6 +81,8 @@ class FakeContext implements HarnessContext {
                 this.followups.push(content)
             },
             ctx: this.agentCtx,
+            model: this.model as never,
+            options: { provider: 'deepseek-official', model: 'deepseek-v4-pro' },
             session: { id: 's1', header: { cwd }, events: [] },
         }
     }
@@ -301,16 +320,9 @@ test('scoring: high-complexity messages route to the configured model and the tu
     assert.match(turn, /消息评分: 0\.90 \(high\) → 执行模型: deepseek-v4-pro/)
     assert.match(turn, /评分依据: 代码\/堆栈片段/)
 
-    // the scored-turn override is applied through the OFFICIAL seam:
-    // prompt assembly snapshots the selection, request routing applies it
-    // (real cordis waterfall with the innermost next as last argument)
-    const waterfall = (ctx.agentCtx as unknown as { waterfall: (n: string, ...a: unknown[]) => unknown }).waterfall
-        .bind(ctx.agentCtx)
-    await waterfall('system-prompt/assemble', {}, {}, async () => ({ variables: {} }))
-    const resolved = await waterfall('agent/request', {}, async () => ({ model: 'default-model', reasoningEffort: 'low' }))
-    assert.equal((resolved as Record<string, unknown>).model, 'deepseek-v4-pro')
-    assert.equal((resolved as Record<string, unknown>).provider, 'deepseek-official')
-    assert.equal((resolved as Record<string, unknown>).reasoningEffort, undefined, 'inherited effort cleared')
+    // the scored-turn override is applied through the OFFICIAL agent-owned seam
+    // (dsh 0.2.2: `agent.model.select({provider, model, reasoningEffort})`)
+    assert.deepEqual(ctx.model.last, { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
 
     // low-complexity message uses its own tier
     await layer.hub.dispatch({
@@ -322,6 +334,7 @@ test('scoring: high-complexity messages route to the configured model and the tu
         text: 'git status',
     } as InboundMessage)
     assert.match(ctx.followups[1], /执行模型: deepseek-v4-flash/)
+    assert.deepEqual(ctx.model.last, { provider: 'deepseek-official', model: 'deepseek-v4-flash' })
 
     layer.teardown()
 })
