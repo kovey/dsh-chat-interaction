@@ -106,6 +106,29 @@ export function createChatApi(deps) {
     const disposers = new Set();
     const commands = new Map();
     let disposed = false;
+    // ---- answer provenance bookkeeping ------------------------------------
+    const counters = { askedQuestions: 0, ignoredAnswers: 0, ignoredBySender: 0, ignoredByOptions: 0 };
+    const ignoredHandlers = new Set();
+    const recordIgnored = (event) => {
+        counters.ignoredAnswers += 1;
+        if (event.reason === 'sender-not-allowed')
+            counters.ignoredBySender += 1;
+        else
+            counters.ignoredByOptions += 1;
+        // Loud on purpose: an attempted answer by a non-whitelisted sender must not
+        // look like a plain timeout in the log (that is the audit-trail hole).
+        log('warn', `answer ignored (${event.reason}) on ${event.channel}/${event.chatId}` +
+            `${event.by === undefined ? '' : ` by=${event.by}`}${event.messageId === '' ? '' : ` message=${event.messageId}`}`);
+        for (const handler of ignoredHandlers) {
+            try {
+                handler(event);
+            }
+            catch (e) {
+                log('error', 'answer-ignored handler failed:', e.message);
+            }
+        }
+    };
+    const kindOf = (channel, chatId, reply) => reply?.chatType ?? deps.resolveChatKind?.(channel, chatId);
     // ---- target resolution -------------------------------------------------
     const resolve = (target) => {
         if (target?.channel && target.chatId)
@@ -205,6 +228,7 @@ export function createChatApi(deps) {
         const adapter = adapterOf(channel);
         if (!adapter)
             return fail('channel-not-found', `unknown channel "${channel}"`);
+        counters.askedQuestions += 1;
         const options = request.options ?? [];
         const nonce = randomUUID().replace(/-/g, '').slice(0, 16);
         const title = request.title ?? '需要确认';
@@ -238,26 +262,52 @@ export function createChatApi(deps) {
             }
             if (reply.timedOut)
                 break;
-            if (request.from?.length && (!reply.senderId || !request.from.includes(reply.senderId)))
-                continue;
+            if (request.from?.length && (!reply.senderId || !request.from.includes(reply.senderId))) {
+                recordIgnored({
+                    channel,
+                    chatId,
+                    ...(reply.senderId === undefined ? {} : { by: reply.senderId }),
+                    text: reply.text,
+                    messageId: reply.messageId,
+                    reason: 'sender-not-allowed',
+                    at: Date.now(),
+                });
+                continue; // keep waiting: a rejected sender must not consume the question
+            }
             if (options.length > 0) {
                 const hit = matchOption(reply.text, options, nonce);
-                if (!hit)
+                if (!hit) {
+                    recordIgnored({
+                        channel,
+                        chatId,
+                        ...(reply.senderId === undefined ? {} : { by: reply.senderId }),
+                        text: reply.text,
+                        messageId: reply.messageId,
+                        reason: 'option-mismatch',
+                        at: Date.now(),
+                    });
                     continue; // unrelated message: keep waiting for the real answer
+                }
+                const kind = kindOf(channel, chatId, reply);
                 return ok({
                     value: hit.value,
                     text: reply.text,
                     ...(hit.label ? { label: hit.label } : {}),
                     ...(reply.senderId ? { by: reply.senderId } : {}),
+                    chatId,
+                    ...(kind === undefined ? {} : { chatKind: kind }),
                     messageId: reply.messageId,
                     via: hit.via,
                     at: Date.now(),
                 });
             }
+            const kind = kindOf(channel, chatId, reply);
             return ok({
                 value: reply.text,
                 text: reply.text,
                 ...(reply.senderId ? { by: reply.senderId } : {}),
+                chatId,
+                ...(kind === undefined ? {} : { chatKind: kind }),
                 messageId: reply.messageId,
                 via: reply.isCardAction ? 'click' : 'text',
                 at: Date.now(),
@@ -267,6 +317,7 @@ export function createChatApi(deps) {
             return ok({
                 value: request.defaultOption,
                 text: '',
+                chatId,
                 messageId: '',
                 via: 'text',
                 at: Date.now(),
@@ -363,10 +414,13 @@ export function createChatApi(deps) {
         if (reply.timedOut)
             return fail('timeout', `no action within ${clampTimeout(request.timeoutMs)}ms`);
         const parsed = parseTokenValue(reply.text);
+        const kind = kindOf(channel, chatId, reply);
         return ok({
             value: parsed ? parsed.value : reply.text,
             text: reply.text,
             ...(reply.senderId ? { by: reply.senderId } : {}),
+            chatId,
+            ...(kind === undefined ? {} : { chatKind: kind }),
             messageId: reply.messageId,
             at: Date.now(),
         });
@@ -456,6 +510,40 @@ export function createChatApi(deps) {
         sendCard,
         sendFile,
         ask,
+        onAnswerIgnored(handler) {
+            ignoredHandlers.add(handler);
+            const dispose = () => { ignoredHandlers.delete(handler); };
+            disposers.add(dispose);
+            return {
+                dispose() {
+                    disposers.delete(dispose);
+                    dispose();
+                },
+            };
+        },
+        stats() {
+            return { ...counters };
+        },
+        chatKind(target) {
+            const t = resolve(target);
+            if (!t.ok)
+                return t;
+            const kind = deps.resolveChatKind?.(t.value.channel, t.value.chatId);
+            return kind === undefined
+                ? fail('unknown-chat', `chat ${t.value.channel}/${t.value.chatId} has not been observed and has no p2p marker`)
+                : ok(kind);
+        },
+        resolveChat(target) {
+            const t = resolve(target);
+            if (!t.ok)
+                return t;
+            const kind = deps.resolveChatKind?.(t.value.channel, t.value.chatId);
+            return ok({
+                channel: t.value.channel,
+                chatId: t.value.chatId,
+                ...(kind === undefined ? {} : { kind }),
+            });
+        },
         confirm,
         notify,
         waitForAction,

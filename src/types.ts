@@ -102,6 +102,12 @@ export interface WaitResult {
     messageId: string
     isCardAction: boolean
     /**
+     * The consumed message's chat kind (`p2p` / `group`) when the platform
+     * reported one. Answer provenance needs both "which chat" and "what kind":
+     * an approval decision must be attributable to a chat, not just a sender.
+     */
+    chatType?: 'p2p' | 'group'
+    /**
      * Who sent it. Required for approval cards: a decision that cannot name the
      * person who clicked is not an audit trail (the suite records `by` in the
      * specification approval and in the delivery receipt).

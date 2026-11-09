@@ -447,6 +447,16 @@ function applyInner(
             return null
         }
     }
+    const resolveChatKind = (channel: string, chatId: string): 'p2p' | 'group' | undefined => {
+        const observed = hub.kindOf(channel, chatId)
+        if (observed) return observed
+        try {
+            // The project's p2p marker is "the last private chat partner" — a
+            // strong hint that this id is a p2p chat even before we see traffic.
+            if (readFileSafe(statePaths(channel, bridge.cwdOf()).p2pChat).trim() === chatId) return 'p2p'
+        } catch { /* unknown */ }
+        return undefined
+    }
     const api = createChatApi({
         pluginVersion: PACKAGE_VERSION,
         hub,
@@ -454,6 +464,7 @@ function applyInner(
         adapters,
         resolveActive: resolveActiveTarget,
         resolveForAgent: resolveAgentTarget,
+        resolveChatKind,
         connect: (channel) => connectChannel(channel),
         disconnect: (channel) => disconnectChannel(channel),
         status: (channel) => hub.status(channel),

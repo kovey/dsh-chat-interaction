@@ -4,7 +4,7 @@ import type { ChannelAdapter } from './channel.js';
 import type { AuthState, ButtonSpec, CardSpec, ChannelCapabilities, InboundMessage, ListenerStatus, SendResult } from './types.js';
 /** Bump when a breaking change lands in this contract. */
 export declare const CHAT_INTERACTION_API_VERSION = 1;
-export type ApiErrorCode = 'invalid-argument' | 'no-target' | 'channel-not-found' | 'channel-unsupported' | 'send-failed' | 'timeout' | 'aborted' | 'internal';
+export type ApiErrorCode = 'invalid-argument' | 'no-target' | 'channel-not-found' | 'channel-unsupported' | 'send-failed' | 'timeout' | 'aborted' | 'unknown-chat' | 'internal';
 export type ApiResult<T> = {
     ok: true;
     value: T;
@@ -62,6 +62,10 @@ export interface AskAnswer {
     label?: string;
     /** Platform user id of the answerer. */
     by?: string;
+    /** The chat the answer came from (provenance: "who, from which chat, which message"). */
+    chatId: string;
+    /** The answer chat's kind, when the platform reported it. */
+    chatKind?: 'p2p' | 'group';
     messageId: string;
     via: 'click' | 'text';
     at: number;
@@ -100,8 +104,45 @@ export interface ActionAnswer {
     value: string;
     text: string;
     by?: string;
+    /** The chat the action came from. */
+    chatId: string;
+    /** The action chat's kind, when the platform reported it. */
+    chatKind?: 'p2p' | 'group';
     messageId: string;
     at: number;
+}
+/** Why an inbound message was looked at but not accepted as THE answer. */
+export type IgnoredAnswerReason = 'sender-not-allowed' | 'option-mismatch';
+/** A rejected answer attempt — observable so "someone tried to answer for them"
+ *  does not silently look like a timeout in the audit trail. */
+export interface IgnoredAnswer {
+    channel: string;
+    chatId: string;
+    /** Platform user id of the sender, when known. */
+    by?: string;
+    /** Raw text of the ignored message. */
+    text: string;
+    messageId: string;
+    reason: IgnoredAnswerReason;
+    at: number;
+}
+/** Counters for the API's asks (process-local). */
+export interface ApiStats {
+    /** Every ask() started. */
+    askedQuestions: number;
+    /** Ignored answer attempts, all reasons. */
+    ignoredAnswers: number;
+    /** Rejected because the sender was outside `from`. */
+    ignoredBySender: number;
+    /** Rejected because the text matched no offered option. */
+    ignoredByOptions: number;
+}
+/** A resolved chat plus what the API knows about it. */
+export interface ResolvedChat {
+    channel: string;
+    chatId: string;
+    /** `p2p` / `group` when observed (or matched by the project p2p marker). */
+    kind?: 'p2p' | 'group';
 }
 export interface FileRequest extends ChatTarget {
     /** Absolute path, or a path inside `root` (see `root`). */
@@ -175,6 +216,16 @@ export interface ChatInteractionApi {
     sendCard(target: ChatTarget, card: CardSpec): Promise<ApiResult<SendOk>>;
     sendFile(target: FileRequest): Promise<ApiResult<SendOk>>;
     ask(request: AskRequest): Promise<ApiResult<AskAnswer>>;
+    /** Observe answer attempts that were rejected (whitelist / option mismatch). */
+    onAnswerIgnored(handler: (event: IgnoredAnswer) => void): {
+        dispose(): void;
+    };
+    /** Process-local counters for asks and ignored answers. */
+    stats(): ApiStats;
+    /** The kind of a chat (observed inbound / project p2p marker), if known. */
+    chatKind(target: ChatTarget): ApiResult<'p2p' | 'group'>;
+    /** Resolve a target and report what is known about the chat. */
+    resolveChat(target: ChatTarget): ApiResult<ResolvedChat>;
     confirm(target: ChatTarget, question: {
         title?: string;
         body?: string;
@@ -203,6 +254,11 @@ export interface ChatApiDeps {
     resolveForAgent(agent: {
         id: string;
     }): ResolvedTarget | null;
+    /**
+     * Kind of a chat the plugin knows about (observed inbound messages, or the
+     * project's p2p marker). Omitted → the API reports `unknown-chat`.
+     */
+    resolveChatKind?(channel: string, chatId: string): 'p2p' | 'group' | undefined;
     connect(channel: string): Promise<ListenerStatus>;
     disconnect(channel: string): Promise<ListenerStatus>;
     status(channel: string): ListenerStatus;

@@ -47,6 +47,8 @@ export class InteractionHub {
     waiters = new Map();
     /** Observe-only inbound hooks (another plugin's integration point). */
     inboundObservers = new Set();
+    /** Chat kind learned from inbound messages (channel|chatId → p2p/group). */
+    chatKinds = new Map();
     retry;
     tornDown = false;
     constructor(options = {}) {
@@ -208,6 +210,10 @@ export class InteractionHub {
      * routing). Handlers must not throw and must not block the pipeline.
      * Returns a disposer.
      */
+    /** The kind of a chat this hub has observed, or undefined when unknown. */
+    kindOf(channel, chatId) {
+        return this.chatKinds.get(`${channel}|${chatId}`);
+    }
     onInbound(handler) {
         this.inboundObservers.add(handler);
         return () => { this.inboundObservers.delete(handler); };
@@ -288,6 +294,11 @@ export class InteractionHub {
         catch (e) {
             this.log('error', 'state update failed:', e.message);
         }
+        // 3.4) remember the chat kind — the public API exposes it so a caller can
+        //      assert "this is really a p2p chat" before asking (approval provenance).
+        if (msg.chatType === 'p2p' || msg.chatType === 'group') {
+            this.chatKinds.set(`${msg.channel}|${msg.chatId}`, msg.chatType);
+        }
         // 3.5) observe-only hooks (other plugins may want every inbound message)
         this.notifyInbound(msg);
         // 4) an agent-side waiter consumes the message, so a running task gets
@@ -312,6 +323,7 @@ export class InteractionHub {
                         text: msg.text,
                         messageId: msg.messageId || '',
                         isCardAction: !!msg.isCardAction,
+                        ...(msg.chatType === 'p2p' || msg.chatType === 'group' ? { chatType: msg.chatType } : {}),
                         ...(msg.senderId ? { senderId: msg.senderId } : {}),
                     });
                     return;

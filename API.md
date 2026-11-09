@@ -64,6 +64,11 @@ export function apply(ctx: any) {
 
 解析失败返回 `{ ok: false, code: 'no-target' }`。
 
+> **`p2pChat` 的语义**：每个项目/渠道的 `<项目>/.dsh/<channel>-last-p2p-chat.txt` 记录的是
+> **最后一个私聊者**（最近一次 P2P 入站消息的会话 id），**不是"当前审批人"也不是通用目标**。
+> 把它当作审批目标是一个坑：它可能已经换成别人。发问前若要断言"这确实是私聊"，用
+> `api.resolveChat(target)` / `api.chatKind(target)` 查询，而不是只信配置。
+
 ## API 参考
 
 ### 元信息
@@ -117,9 +122,36 @@ if (ans.ok) {
 }
 ```
 
+返回的 `AskAnswer` 带**出处**：`chatId`（答案来自哪个会话）、`chatKind`（`p2p` / `group`，
+平台报告时才存在）、`by`（谁答的）、`messageId`（哪条消息）——审批台账可以因此写清
+"谁、从哪个会话、哪条消息"。
+
 - 答案可以是：按钮点击、选项 `value`、选项 `label`、**1 起始的序号**。
 - 无 `options` 时，下一条（匹配 `from` 的）消息就是答案。
 - 等待期间无关消息不会打断，也不会被吞掉（它们继续按正常路由处理）。
+
+**被忽略的回答是可观测的**（"有人试图代答"不能只表现为超时）：
+
+```ts
+const sub = chat.onAnswerIgnored((e) => {
+    // e: { channel, chatId, by?, text, messageId, reason: 'sender-not-allowed' | 'option-mismatch', at }
+    audit.write(e)               // 谁在哪个会话、用哪条消息试图回答
+})
+const stats = chat.stats()       // { askedQuestions, ignoredAnswers, ignoredBySender, ignoredByOptions }
+sub.dispose()
+```
+
+忽略只影响那一条消息：`ask()` 会继续等待，后续合法回答仍然生效（不会吞掉问题）。
+
+**会话类型查询**（发问前断言"这确实是私聊"）：
+
+```ts
+const kind = chat.chatKind({ channel: 'feishu', chatId: 'oc_x' })   // ok: 'p2p' | 'group'；未知 → unknown-chat
+const chatInfo = chat.resolveChat({ channel: 'feishu', chatId: 'oc_x' }) // { channel, chatId, kind? }
+```
+
+类型来自**已观测到的入站消息**（平台报告的 `chatType`）或项目 p2p 标记；两者都没有时明确返回
+`unknown-chat`，而不是猜。
 
 `confirm()` 是问答的语法糖，**超时按拒绝处理**（fail-closed）：
 
@@ -145,6 +177,7 @@ if (n.ok && n.value.actionToken) {
 ```
 
 `waitForAction` 只消费**该 token** 的按钮点击；普通消息与别的卡片的点击都放行。
+返回的 `ActionAnswer` 同样带出处：`chatId` / `chatKind` / `by` / `messageId`。
 
 ### Slash 命令
 
@@ -188,6 +221,7 @@ sub.dispose()
 | `send-failed` | 平台发送失败（附平台错误） | 重试或换渠道 |
 | `timeout` | 等待超时 | 用 `defaultOption` 或提示用户 |
 | `aborted` | 调用方通过 `signal` 取消 | 正常终止 |
+| `unknown-chat` | 该会话从未被观测到、也没有 p2p 标记 | 先发一条消息或显式传 channel+chatId，再用 resolveChat 确认 |
 | `internal` | API 已释放或未预期错误 | 记录日志 |
 
 ## 生命周期与 HMR
@@ -199,7 +233,9 @@ sub.dispose()
 ## 版本策略
 
 - `api.apiVersion` 是**契约版本**，与本包 semver 独立。
-- **新增**方法或可选字段 → `apiVersion` 不变（向后兼容）。
+- **新增**方法或可选字段 → `apiVersion` 不变（向后兼容）。例如 `chatId` / `chatKind` /
+  `onAnswerIgnored` / `stats` / `resolveChat` 都是本类新增（`AskAnswer.chatId` 属于**必填**字段，
+  但只影响读取方对返回值的类型断言，不改变调用方式）。
 - **删除/改变语义/修改必填参数** → `apiVersion` +1，并在 CHANGELOG 的「破坏性变更」中说明。
 - 插件应以 `if (chat.apiVersion >= N)` 做能力判断，而不是比较包版本号。
 

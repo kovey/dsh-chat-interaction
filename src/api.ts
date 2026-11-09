@@ -61,6 +61,7 @@ export type ApiErrorCode =
     | 'send-failed'
     | 'timeout'
     | 'aborted'
+    | 'unknown-chat'
     | 'internal'
 
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; code: ApiErrorCode; message: string }
@@ -125,6 +126,10 @@ export interface AskAnswer {
     label?: string
     /** Platform user id of the answerer. */
     by?: string
+    /** The chat the answer came from (provenance: "who, from which chat, which message"). */
+    chatId: string
+    /** The answer chat's kind, when the platform reported it. */
+    chatKind?: 'p2p' | 'group'
     messageId: string
     via: 'click' | 'text'
     at: number
@@ -169,8 +174,49 @@ export interface ActionAnswer {
     value: string
     text: string
     by?: string
+    /** The chat the action came from. */
+    chatId: string
+    /** The action chat's kind, when the platform reported it. */
+    chatKind?: 'p2p' | 'group'
     messageId: string
     at: number
+}
+
+/** Why an inbound message was looked at but not accepted as THE answer. */
+export type IgnoredAnswerReason = 'sender-not-allowed' | 'option-mismatch'
+
+/** A rejected answer attempt — observable so "someone tried to answer for them"
+ *  does not silently look like a timeout in the audit trail. */
+export interface IgnoredAnswer {
+    channel: string
+    chatId: string
+    /** Platform user id of the sender, when known. */
+    by?: string
+    /** Raw text of the ignored message. */
+    text: string
+    messageId: string
+    reason: IgnoredAnswerReason
+    at: number
+}
+
+/** Counters for the API's asks (process-local). */
+export interface ApiStats {
+    /** Every ask() started. */
+    askedQuestions: number
+    /** Ignored answer attempts, all reasons. */
+    ignoredAnswers: number
+    /** Rejected because the sender was outside `from`. */
+    ignoredBySender: number
+    /** Rejected because the text matched no offered option. */
+    ignoredByOptions: number
+}
+
+/** A resolved chat plus what the API knows about it. */
+export interface ResolvedChat {
+    channel: string
+    chatId: string
+    /** `p2p` / `group` when observed (or matched by the project p2p marker). */
+    kind?: 'p2p' | 'group'
 }
 
 export interface FileRequest extends ChatTarget {
@@ -253,6 +299,14 @@ export interface ChatInteractionApi {
     sendFile(target: FileRequest): Promise<ApiResult<SendOk>>
 
     ask(request: AskRequest): Promise<ApiResult<AskAnswer>>
+    /** Observe answer attempts that were rejected (whitelist / option mismatch). */
+    onAnswerIgnored(handler: (event: IgnoredAnswer) => void): { dispose(): void }
+    /** Process-local counters for asks and ignored answers. */
+    stats(): ApiStats
+    /** The kind of a chat (observed inbound / project p2p marker), if known. */
+    chatKind(target: ChatTarget): ApiResult<'p2p' | 'group'>
+    /** Resolve a target and report what is known about the chat. */
+    resolveChat(target: ChatTarget): ApiResult<ResolvedChat>
     confirm(target: ChatTarget, question: { title?: string; body?: string }, opts?: { timeoutMs?: number }): Promise<ApiResult<ConfirmResult>>
     notify(request: NoticeRequest): Promise<ApiResult<NoticeResult>>
     waitForAction(request: ActionRequest): Promise<ApiResult<ActionAnswer>>
@@ -273,6 +327,11 @@ export interface ChatApiDeps {
     resolveActive(channel?: string): ResolvedTarget | null
     /** Chat bound to a specific agent. */
     resolveForAgent(agent: { id: string }): ResolvedTarget | null
+    /**
+     * Kind of a chat the plugin knows about (observed inbound messages, or the
+     * project's p2p marker). Omitted → the API reports `unknown-chat`.
+     */
+    resolveChatKind?(channel: string, chatId: string): 'p2p' | 'group' | undefined
     connect(channel: string): Promise<ListenerStatus>
     disconnect(channel: string): Promise<ListenerStatus>
     status(channel: string): ListenerStatus
@@ -345,6 +404,26 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
     const disposers = new Set<() => void>()
     const commands = new Map<string, CommandSpec>()
     let disposed = false
+
+    // ---- answer provenance bookkeeping ------------------------------------
+    const counters = { askedQuestions: 0, ignoredAnswers: 0, ignoredBySender: 0, ignoredByOptions: 0 }
+    const ignoredHandlers = new Set<(event: IgnoredAnswer) => void>()
+
+    const recordIgnored = (event: IgnoredAnswer): void => {
+        counters.ignoredAnswers += 1
+        if (event.reason === 'sender-not-allowed') counters.ignoredBySender += 1
+        else counters.ignoredByOptions += 1
+        // Loud on purpose: an attempted answer by a non-whitelisted sender must not
+        // look like a plain timeout in the log (that is the audit-trail hole).
+        log('warn', `answer ignored (${event.reason}) on ${event.channel}/${event.chatId}` +
+            `${event.by === undefined ? '' : ` by=${event.by}`}${event.messageId === '' ? '' : ` message=${event.messageId}`}`)
+        for (const handler of ignoredHandlers) {
+            try { handler(event) } catch (e) { log('error', 'answer-ignored handler failed:', (e as Error).message) }
+        }
+    }
+
+    const kindOf = (channel: string, chatId: string, reply?: { chatType?: 'p2p' | 'group' }): 'p2p' | 'group' | undefined =>
+        reply?.chatType ?? deps.resolveChatKind?.(channel, chatId)
 
     // ---- target resolution -------------------------------------------------
     const resolve = (target: ChatTarget | undefined): ApiResult<ResolvedTarget> => {
@@ -435,6 +514,7 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
         const { channel, chatId } = t.value
         const adapter = adapterOf(channel)
         if (!adapter) return fail('channel-not-found', `unknown channel "${channel}"`)
+        counters.askedQuestions += 1
         const options = request.options ?? []
         const nonce = randomUUID().replace(/-/g, '').slice(0, 16)
         const title = request.title ?? '需要确认'
@@ -469,24 +549,52 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
                 return fail('internal', (e as Error).message)
             }
             if (reply.timedOut) break
-            if (request.from?.length && (!reply.senderId || !request.from.includes(reply.senderId))) continue
+            if (request.from?.length && (!reply.senderId || !request.from.includes(reply.senderId))) {
+                recordIgnored({
+                    channel,
+                    chatId,
+                    ...(reply.senderId === undefined ? {} : { by: reply.senderId }),
+                    text: reply.text,
+                    messageId: reply.messageId,
+                    reason: 'sender-not-allowed',
+                    at: Date.now(),
+                })
+                continue // keep waiting: a rejected sender must not consume the question
+            }
             if (options.length > 0) {
                 const hit = matchOption(reply.text, options, nonce)
-                if (!hit) continue // unrelated message: keep waiting for the real answer
+                if (!hit) {
+                    recordIgnored({
+                        channel,
+                        chatId,
+                        ...(reply.senderId === undefined ? {} : { by: reply.senderId }),
+                        text: reply.text,
+                        messageId: reply.messageId,
+                        reason: 'option-mismatch',
+                        at: Date.now(),
+                    })
+                    continue // unrelated message: keep waiting for the real answer
+                }
+                const kind = kindOf(channel, chatId, reply)
                 return ok({
                     value: hit.value,
                     text: reply.text,
                     ...(hit.label ? { label: hit.label } : {}),
                     ...(reply.senderId ? { by: reply.senderId } : {}),
+                    chatId,
+                    ...(kind === undefined ? {} : { chatKind: kind }),
                     messageId: reply.messageId,
                     via: hit.via,
                     at: Date.now(),
                 })
             }
+            const kind = kindOf(channel, chatId, reply)
             return ok({
                 value: reply.text,
                 text: reply.text,
                 ...(reply.senderId ? { by: reply.senderId } : {}),
+                chatId,
+                ...(kind === undefined ? {} : { chatKind: kind }),
                 messageId: reply.messageId,
                 via: reply.isCardAction ? 'click' : 'text',
                 at: Date.now(),
@@ -496,6 +604,7 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
             return ok({
                 value: request.defaultOption,
                 text: '',
+                chatId,
                 messageId: '',
                 via: 'text',
                 at: Date.now(),
@@ -593,10 +702,13 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
         }
         if (reply.timedOut) return fail('timeout', `no action within ${clampTimeout(request.timeoutMs)}ms`)
         const parsed = parseTokenValue(reply.text)
+        const kind = kindOf(channel, chatId, reply)
         return ok({
             value: parsed ? parsed.value : reply.text,
             text: reply.text,
             ...(reply.senderId ? { by: reply.senderId } : {}),
+            chatId,
+            ...(kind === undefined ? {} : { chatKind: kind }),
             messageId: reply.messageId,
             at: Date.now(),
         })
@@ -694,6 +806,38 @@ export function createChatApi(deps: ChatApiDeps): ChatInteractionApi {
         sendCard,
         sendFile,
         ask,
+        onAnswerIgnored(handler: (event: IgnoredAnswer) => void) {
+            ignoredHandlers.add(handler)
+            const dispose = () => { ignoredHandlers.delete(handler) }
+            disposers.add(dispose)
+            return {
+                dispose() {
+                    disposers.delete(dispose)
+                    dispose()
+                },
+            }
+        },
+        stats(): ApiStats {
+            return { ...counters }
+        },
+        chatKind(target: ChatTarget) {
+            const t = resolve(target)
+            if (!t.ok) return t
+            const kind = deps.resolveChatKind?.(t.value.channel, t.value.chatId)
+            return kind === undefined
+                ? fail('unknown-chat', `chat ${t.value.channel}/${t.value.chatId} has not been observed and has no p2p marker`)
+                : ok(kind)
+        },
+        resolveChat(target: ChatTarget) {
+            const t = resolve(target)
+            if (!t.ok) return t
+            const kind = deps.resolveChatKind?.(t.value.channel, t.value.chatId)
+            return ok({
+                channel: t.value.channel,
+                chatId: t.value.chatId,
+                ...(kind === undefined ? {} : { kind }),
+            })
+        },
         confirm,
         notify,
         waitForAction,

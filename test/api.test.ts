@@ -78,13 +78,15 @@ function setup(caps?: ConstructorParameters<typeof Probe>[0]) {
     const ch = new Probe(caps)
     const hub = new InteractionHub({ ack: false, log: () => undefined })
     hub.addChannel(ch)
+    const logs: string[] = []
     const api: ChatInteractionApi = createChatApi({
         pluginVersion: '0.0.0-test',
         hub,
-        log: () => undefined,
+        log: (level: string, ...args: unknown[]) => void logs.push(`${level}:${args.map(String).join(' ')}`),
         adapters: new Map([['probe', ch]]),
         resolveActive: () => ({ channel: 'probe', chatId: 'chat-1' }),
         resolveForAgent: () => ({ channel: 'probe', chatId: 'chat-1' }),
+        resolveChatKind: (channel, chatId) => hub.kindOf(channel, chatId),
         connect: (c) => hub.connect(c),
         disconnect: (c) => hub.disconnect(c),
         status: (c) => hub.status(c),
@@ -99,7 +101,7 @@ function setup(caps?: ConstructorParameters<typeof Probe>[0]) {
             pendingQuestions: [],
         }),
     })
-    return { ch, hub, api }
+    return { ch, hub, api, logs }
 }
 
 /** 从最近一张卡片取按钮值（含 `ask:<nonce>:<value>`）。 */
@@ -189,6 +191,8 @@ test('ask：卡片按钮带一次性 token，点击命中并返回出处', async
         assert.equal(ans.value.value, 'yes')
         assert.equal(ans.value.via, 'click')
         assert.equal(ans.value.by, 'ou_1')
+        assert.equal(ans.value.chatId, 'chat-1')
+        assert.equal(ans.value.chatKind, 'p2p', '答案出处必须带会话类型')
     }
 })
 
@@ -248,6 +252,77 @@ test('confirm：超时 fail-closed（confirmed=false, timedOut=true）', async (
     if (r.ok) {
         assert.equal(r.value.confirmed, false)
         assert.equal(r.value.timedOut, true)
+    }
+})
+
+test('ask：白名单外的回答被忽略但可观测（事件 + 计数 + warn），不消费问题', async () => {
+    const { hub, api, logs } = setup()
+    const ignored: Array<{ reason: string; by?: string; chatId: string }> = []
+    const sub = api.onAnswerIgnored((e) => void ignored.push({ reason: e.reason, ...(e.by === undefined ? {} : { by: e.by }), chatId: e.chatId }))
+    const pending = api.ask({
+        channel: 'probe',
+        chatId: 'chat-1',
+        options: [{ value: 'yes', label: '同意' }, { value: 'no', label: '拒绝' }],
+        from: ['ou_allowed'],
+        timeoutMs: 2000,
+    })
+    await sleep(10)
+    await hub.dispatch(msg({ text: 'yes', senderId: 'ou_evil' })) // 白名单外：应被忽略
+    await hub.dispatch(msg({ text: 'yes', senderId: 'ou_allowed' })) // 合法回答
+    const ans = await pending
+    sub.dispose()
+
+    assert.equal(ans.ok, true)
+    if (ans.ok) assert.equal(ans.value.by, 'ou_allowed')
+    assert.deepEqual(ignored, [{ reason: 'sender-not-allowed', by: 'ou_evil', chatId: 'chat-1' }])
+    const stats = api.stats()
+    assert.equal(stats.ignoredAnswers, 1)
+    assert.equal(stats.ignoredBySender, 1)
+    assert.ok(stats.askedQuestions >= 1)
+    assert.ok(logs.some((l) => l.startsWith('warn:') && l.includes('answer ignored (sender-not-allowed)')), logs.join(' | '))
+})
+
+test('ask：不匹配选项的回答也计为 option-mismatch（不再静默）', async () => {
+    const { hub, api } = setup()
+    const pending = api.ask({ channel: 'probe', chatId: 'chat-1', options: [{ value: 'a', label: '甲' }], timeoutMs: 2000 })
+    await sleep(10)
+    await hub.dispatch(msg({ text: '随便说说' }))
+    await hub.dispatch(msg({ text: 'a' }))
+    const ans = await pending
+    assert.equal(ans.ok, true)
+    assert.equal(api.stats().ignoredByOptions, 1)
+})
+
+test('chatKind / resolveChat：已观测会话可查询，未知会话明确报 unknown-chat', async () => {
+    const { hub, api } = setup()
+    await hub.dispatch(msg({ text: 'hi' })) // hub 记录 chat-1 = p2p
+    const kind = api.chatKind({ channel: 'probe', chatId: 'chat-1' })
+    assert.equal(kind.ok, true)
+    if (kind.ok) assert.equal(kind.value, 'p2p')
+
+    const resolved = api.resolveChat({ channel: 'probe', chatId: 'chat-1' })
+    assert.equal(resolved.ok, true)
+    if (resolved.ok) {
+        assert.equal(resolved.value.channel, 'probe')
+        assert.equal(resolved.value.chatId, 'chat-1')
+        assert.equal(resolved.value.kind, 'p2p')
+    }
+
+    const unknown = api.chatKind({ channel: 'probe', chatId: 'chat-never-seen' })
+    assert.equal(unknown.ok, false)
+    if (!unknown.ok) assert.equal(unknown.code, 'unknown-chat')
+})
+
+test('ask：消息未带 chatType 时 chatKind 省略（旧渠道兼容）', async () => {
+    const { hub, api } = setup()
+    const pending = api.ask({ channel: 'probe', chatId: 'chat-1', timeoutMs: 2000 })
+    await sleep(10)
+    await hub.dispatch({ channel: 'probe', chatId: 'chat-1', chatType: undefined as never, messageId: 'm-x', messageType: 'text', text: '自由回答' } as never)
+    const ans = await pending
+    assert.equal(ans.ok, true)
+    if (ans.ok) {
+        assert.equal(ans.value.chatId, 'chat-1')
+        assert.equal(ans.value.chatKind, undefined)
     }
 })
 

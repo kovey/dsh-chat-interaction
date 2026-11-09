@@ -64,6 +64,8 @@ export declare class InteractionHub {
     private readonly waiters;
     /** Observe-only inbound hooks (another plugin's integration point). */
     private readonly inboundObservers;
+    /** Chat kind learned from inbound messages (channel|chatId → p2p/group). */
+    private readonly chatKinds;
     private readonly retry;
     private tornDown;
     constructor(options?: HubOptions);
@@ -109,6 +111,8 @@ export declare class InteractionHub {
      * routing). Handlers must not throw and must not block the pipeline.
      * Returns a disposer.
      */
+    /** The kind of a chat this hub has observed, or undefined when unknown. */
+    kindOf(channel: string, chatId: string): 'p2p' | 'group' | undefined;
     onInbound(handler: (msg: InboundMessage) => void): () => void;
     private notifyInbound;
     private takeWaiter;

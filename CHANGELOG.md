@@ -5,6 +5,24 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.4] - 2026-11-09
+
+### 新增 —— 交互 API 的答案出处与可观测性（审批问责）
+
+- **答案出处**：`AskAnswer` / `ActionAnswer` 新增 **`chatId`**（答案来自哪个会话）与
+  **`chatKind`**（`p2p` | `group`，平台报告时才存在）——审批台账可写清"谁、从哪个会话、哪条消息"。
+  类型来自收到答案的那条入站消息的 `chatType`，回退到项目 p2p 标记
+- **被忽略的回答可观测**：新增 `api.onAnswerIgnored(handler)` 与 `api.stats()`
+  （`askedQuestions` / `ignoredAnswers` / `ignoredBySender` / `ignoredByOptions`），
+  并打 warn 日志。非白名单发送者或不匹配选项的回答**不再静默**（以前只表现为超时，看不出被冒名）；
+  忽略只影响那条消息，`ask()` 继续等待，合法回答仍生效
+- **会话类型查询**：新增 `api.chatKind(target)` 与 `api.resolveChat(target)`（来自已观测入站消息
+  或项目 p2p 标记）；未知会话返回 `unknown-chat` 而不是猜
+- **文档**：API.md 明确 **`p2pChat` = 最后一个私聊者**（不是通用目标/审批人），新增字段与方法的
+  用法说明；README 同步
+- 测试：新增 4 项（出处断言、白名单忽略事件+计数+日志、option-mismatch 计数、chatKind/resolveChat
+  含 unknown-chat、无 chatType 时字段省略）→ 套件 229 → 233
+
 ## [0.3.3] - 2026-11-06
 
 ### 适配 DSH v0.2.2-rc.1（跨 0.2.1-rc.3/rc.4/rc.5 与 0.2.2-alpha.2/alpha.3）
@@ -391,6 +409,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.4
 [0.3.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.3
 [0.3.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.2
 [0.3.1]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.1
