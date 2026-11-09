@@ -11,7 +11,9 @@ import {
     buildUpdatedCard,
     extractDocIds,
     extractImageRefs,
+    parseCardAction,
     parseContent,
+    parseSenderIdentity,
     resolveFeishuCreds,
 } from '../src/adapters/feishu.js'
 
@@ -65,4 +67,45 @@ test('resolveFeishuCreds falls back through the chain', () => {
     const cfg = resolveFeishuCreds(tmp, { appId: 'cli_a', appSecret: 'sec_b' })
     assert.equal(cfg.appId, 'cli_a')
     assert.equal(cfg.appSecret, 'sec_b')
+})
+
+
+test('parseSenderIdentity: open_id is the primary identity (user_id may be absent)', () => {
+    assert.deepEqual(parseSenderIdentity({ open_id: 'ou_boss' }), {
+        senderId: 'ou_boss',
+        senderOpenId: 'ou_boss',
+    })
+    // user_id-only payloads still work (fallback + explicit field)
+    assert.deepEqual(parseSenderIdentity({ user_id: 'u_1' }), {
+        senderId: 'u_1',
+        senderUserId: 'u_1',
+    })
+    // both present → open_id wins for senderId, both exposed
+    assert.deepEqual(parseSenderIdentity({ open_id: 'ou_a', user_id: 'u_a' }), {
+        senderId: 'ou_a',
+        senderOpenId: 'ou_a',
+        senderUserId: 'u_a',
+    })
+    assert.equal(parseSenderIdentity(undefined).senderId, '')
+})
+
+test('parseCardAction: operator.open_id alone yields a usable sender; chatType stays unknown', () => {
+    const data = {
+        event: {
+            operator: { open_id: 'ou_boss' }, // Feishu card callbacks often omit user_id
+            action: { value: { choice: 'approve:abc' } },
+            context: { open_chat_id: 'oc_1', open_message_id: 'om_1' },
+        },
+    }
+    const parsed = parseCardAction(data)
+    assert.ok(parsed)
+    assert.equal(parsed!.senderId, 'ou_boss')
+    assert.equal(parsed!.senderOpenId, 'ou_boss')
+    assert.equal(parsed!.senderUserId, undefined)
+    assert.equal(parsed!.chatType, 'unknown', '卡片点击不得声称 p2p（群聊点击会污染 P2P 标记）')
+    assert.equal(parsed!.chatId, 'oc_1')
+    assert.equal(parsed!.choice, 'approve:abc')
+
+    // missing chat/choice → null
+    assert.equal(parseCardAction({ event: { operator: { open_id: 'x' } } }), null)
 })

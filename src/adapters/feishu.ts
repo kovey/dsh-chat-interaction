@@ -230,6 +230,61 @@ export function buildUpdatedCard(cardStoreDir: string, messageId: string, choice
 }
 
 /** Resolve Feishu credentials: config → explicit file → project → home → env. */
+/**
+ * Identity fields of one inbound event. Feishu's `open_id` is always present;
+ * `user_id` needs the employee-id permission and is absent for external users,
+ * so the ORDER matters: an allowlist that stores open_ids must keep working
+ * even when user_id is missing (that was a real bug: only user_id was read).
+ */
+export function parseSenderIdentity(raw: unknown): {
+    senderId: string
+    senderOpenId?: string
+    senderUserId?: string
+} {
+    const ids = (raw || {}) as Record<string, unknown>
+    const openId = ids.open_id === undefined || ids.open_id === null ? undefined : String(ids.open_id)
+    const userId = ids.user_id === undefined || ids.user_id === null ? undefined : String(ids.user_id)
+    return {
+        senderId: String(openId || userId || ''),
+        ...(openId ? { senderOpenId: openId } : {}),
+        ...(userId ? { senderUserId: userId } : {}),
+    }
+}
+
+/** The identity/chat fields of a `card.action.trigger` payload. */
+export interface ParsedCardAction {
+    chatId: string
+    messageId: string
+    choice: string
+    senderId: string
+    senderOpenId?: string
+    senderUserId?: string
+    /**
+     * A card click carries no chat type. It must NOT claim 'p2p': a group click
+     * would otherwise overwrite the project's last-p2p marker.
+     */
+    chatType: 'unknown'
+}
+
+/** Parse a card action (pure: no card store, no reply side effects). */
+export function parseCardAction(data: Record<string, unknown>): ParsedCardAction | null {
+    const ev = (data.event || data || {}) as Record<string, unknown>
+    const act = (ev.action || {}) as Record<string, unknown>
+    const c = (ev.context || {}) as Record<string, unknown>
+    const op = (ev.operator || {}) as Record<string, unknown>
+    const value = (act.value || {}) as Record<string, unknown>
+    const chatId = String(c.open_chat_id || '')
+    const choice = String(value.choice || '')
+    if (!chatId || !choice) return null
+    return {
+        chatId,
+        messageId: String(c.open_message_id || ''),
+        choice,
+        chatType: 'unknown',
+        ...parseSenderIdentity(op),
+    }
+}
+
 export function resolveFeishuCreds(cwd: string, cfg: FeishuChannelConfig): { appId: string; appSecret: string } {
     if (cfg.appId && cfg.appSecret) return { appId: String(cfg.appId), appSecret: String(cfg.appSecret) }
     const candidates = [
@@ -534,7 +589,9 @@ export class FeishuChannel extends BaseChannel {
             chatType: msg.chat_type === 'group' ? 'group' : msg.chat_type === 'p2p' ? 'p2p' : 'unknown',
             messageId: String(msg.message_id || ''),
             messageType: msgType,
-            senderId: String(((sender.sender_id as Record<string, unknown>) || {}).user_id || ''),
+            // open_id is always present; user_id needs the employee-id permission and
+            // is absent for external users. Prefer open_id and keep both for whitelists.
+            ...parseSenderIdentity(sender.sender_id),
             text,
             docLinks: extractDocIds(text),
             mentions: mentions.map((m) => ({ id: m.openId, name: m.name })),
@@ -548,21 +605,15 @@ export class FeishuChannel extends BaseChannel {
 
     private handleCardAction(data: Record<string, unknown>): Record<string, unknown> {
         try {
-            const ev = (data.event || data || {}) as Record<string, unknown>
-            const act = (ev.action || {}) as Record<string, unknown>
-            const c = (ev.context || {}) as Record<string, unknown>
-            const op = (ev.operator || {}) as Record<string, unknown>
-            const value = (act.value || {}) as Record<string, unknown>
-            const choice = String(value.choice || '')
-            const chatId = String(c.open_chat_id || '')
-
-            if (!chatId || !choice) {
+            const parsed = parseCardAction(data)
+            if (parsed === null) {
                 log('warn', 'card-action empty chatId or choice; data=' + JSON.stringify(data).substring(0, 300))
                 return {}
             }
+            const { chatId, choice } = parsed
 
             // Rebuild the card so the click visibly sticks.
-            const updatedCard = buildUpdatedCard(this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd()), String(c.open_message_id || ''), choice)
+            const updatedCard = buildUpdatedCard(this.cardStoreDir(this.cfg.cwdOf?.() ?? process.cwd()), parsed.messageId, choice)
             const cardResponse = (toastContent: string): Record<string, unknown> => {
                 const resp: Record<string, unknown> = { toast: { type: 'success', content: toastContent } }
                 if (updatedCard) resp.card = { type: 'raw', data: updatedCard }
@@ -572,11 +623,8 @@ export class FeishuChannel extends BaseChannel {
             // Synthesize a message event so the agent handles the click like a typed reply.
             this.emit({
                 channel: this.name,
-                chatId,
-                chatType: 'p2p',
-                messageId: String(c.open_message_id || ''),
+                ...parsed,
                 messageType: 'text',
-                senderId: String(op.user_id || ''),
                 text: choice,
                 isCardAction: true,
                 timestamp: String(Date.now()),

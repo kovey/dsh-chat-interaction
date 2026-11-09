@@ -5,6 +5,23 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.5] - 2026-11-09
+
+### 修复 —— 飞书身份只取 user_id 导致白名单必然失败
+
+- **问题**：飞书卡片点击回调的 `operator` 通常**只带 `open_id`**（`user_id` 依赖权限、外部用户没有），
+  而适配器只取 `user_id` → `senderId=''` → 审批人名单（open_id）**必然拒绝**，回答被当成“名单外”
+  丢弃。普通消息事件的 `sender.sender_id` 同样只取了 `user_id`。
+- **修复**：身份解析改为 **`open_id` 优先、`user_id` 回退**（`parseSenderIdentity`）；
+  `InboundMessage` / `WaitResult` 新增 `senderOpenId` / `senderUserId`；
+  审批人名单与 API `from` 过滤改为**任一可用标识命中即通过**，全部缺失时仍 fail closed；
+  审批决定的 `by` 记录实际匹配到的标识（open_id-only 时不再记成空）。
+- **顺带修复**：卡片点击不再硬编码 `chatType: 'p2p'`（改为 `'unknown'`）——群聊里的点击
+  不会再把群 chatId 写进项目的 `<channel>-last-p2p-chat.txt`。
+- 测试：新增 5 项（`parseSenderIdentity` 三种组合 / `parseCardAction` 仅 open_id 且 chatType=unknown /
+  审批名单 open_id 与 user_id 均可匹配 / API from 按 senderOpenId 匹配 / 卡片点击不写 P2P 标记）
+  → 套件 233 → 238
+
 ## [0.3.4] - 2026-11-09
 
 ### 新增 —— 交互 API 的答案出处与可观测性（审批问责）
@@ -409,6 +426,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.5
 [0.3.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.4
 [0.3.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.3
 [0.3.2]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.2

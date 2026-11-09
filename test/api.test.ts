@@ -282,6 +282,23 @@ test('ask：白名单外的回答被忽略但可观测（事件 + 计数 + warn�
     assert.ok(logs.some((l) => l.startsWith('warn:') && l.includes('answer ignored (sender-not-allowed)')), logs.join(' | '))
 })
 
+test('ask：from 白名单按任一标识匹配（senderOpenId 也算）', async () => {
+    const { hub, api } = setup()
+    const pending = api.ask({
+        channel: 'probe',
+        chatId: 'chat-1',
+        options: [{ value: 'yes', label: '同意' }],
+        from: ['ou_boss'],
+        timeoutMs: 2000,
+    })
+    await sleep(10)
+    await hub.dispatch(msg({ text: 'yes', senderId: '', senderOpenId: 'ou_boss' }))
+    const ans = await pending
+    assert.equal(ans.ok, true)
+    if (ans.ok) assert.equal(ans.value.by, 'ou_boss')
+    assert.equal(api.stats().ignoredBySender, 0)
+})
+
 test('ask：不匹配选项的回答也计为 option-mismatch（不再静默）', async () => {
     const { hub, api } = setup()
     const pending = api.ask({ channel: 'probe', chatId: 'chat-1', options: [{ value: 'a', label: '甲' }], timeoutMs: 2000 })

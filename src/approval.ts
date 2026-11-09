@@ -475,23 +475,31 @@ export async function askViaChannel(opts: AskViaChannelOptions, cmd: string, sig
             continue
         }
         const approvers = opts.approvers ?? []
-        if (approvers.length > 0 && (!ans.senderId || !approvers.includes(ans.senderId))) {
+        // Match ANY identifier the platform gave us: allowlists usually contain
+        // open_id (always present), while user_id may be missing entirely.
+        const senderIds = [ans.senderId, ans.senderOpenId, ans.senderUserId]
+            .filter((id): id is string => typeof id === 'string' && id !== '')
+        if (approvers.length > 0 && !senderIds.some((id) => approvers.includes(id))) {
             refusals += 1
-            ledger({ decision: 'unauthorized', userId: ans.senderId, messageId: ans.messageId, via: parsed.nonce !== undefined ? 'click' : 'text' })
-            opts.log('warn', 'approval click from a user who is not on the approver list:', ans.senderId)
+            const who = senderIds[0] ?? ans.senderId
+            ledger({ decision: 'unauthorized', userId: who, messageId: ans.messageId, via: parsed.nonce !== undefined ? 'click' : 'text' })
+            opts.log('warn', 'approval click from a user who is not on the approver list:', who)
             await opts.respond?.('你没有该项目的审批权，本次点击未生效。')
             if (refusals >= MAX_REFUSALS) return null
             continue
         }
+        // Provenance: record the identifier we actually matched (open_id when the
+        // platform omitted user_id) — an empty `by` would break the audit trail.
+        const approver = senderIds[0] ?? ans.senderId
         ledger({
             decision: parsed.decision,
-            userId: ans.senderId,
+            userId: approver,
             messageId: ans.messageId,
             via: parsed.nonce !== undefined ? 'click' : 'text',
         })
         return {
             ...parsed,
-            by: ans.senderId,
+            by: approver,
             messageId: ans.messageId,
             at: Date.now(),
             via: parsed.nonce !== undefined ? 'click' : 'text',

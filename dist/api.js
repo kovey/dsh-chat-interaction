@@ -262,11 +262,13 @@ export function createChatApi(deps) {
             }
             if (reply.timedOut)
                 break;
-            if (request.from?.length && (!reply.senderId || !request.from.includes(reply.senderId))) {
+            const senderIds = [reply.senderId, reply.senderOpenId, reply.senderUserId]
+                .filter((id) => typeof id === 'string' && id !== '');
+            if (request.from?.length && !senderIds.some((id) => request.from.includes(id))) {
                 recordIgnored({
                     channel,
                     chatId,
-                    ...(reply.senderId === undefined ? {} : { by: reply.senderId }),
+                    ...(senderIds[0] === undefined ? {} : { by: senderIds[0] }),
                     text: reply.text,
                     messageId: reply.messageId,
                     reason: 'sender-not-allowed',
@@ -293,7 +295,7 @@ export function createChatApi(deps) {
                     value: hit.value,
                     text: reply.text,
                     ...(hit.label ? { label: hit.label } : {}),
-                    ...(reply.senderId ? { by: reply.senderId } : {}),
+                    ...(senderIds[0] === undefined ? {} : { by: senderIds[0] }),
                     chatId,
                     ...(kind === undefined ? {} : { chatKind: kind }),
                     messageId: reply.messageId,
@@ -305,7 +307,7 @@ export function createChatApi(deps) {
             return ok({
                 value: reply.text,
                 text: reply.text,
-                ...(reply.senderId ? { by: reply.senderId } : {}),
+                ...(senderIds[0] === undefined ? {} : { by: senderIds[0] }),
                 chatId,
                 ...(kind === undefined ? {} : { chatKind: kind }),
                 messageId: reply.messageId,

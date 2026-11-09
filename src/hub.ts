@@ -414,6 +414,8 @@ export class InteractionHub {
                         isCardAction: !!msg.isCardAction,
                         ...(msg.chatType === 'p2p' || msg.chatType === 'group' ? { chatType: msg.chatType } : {}),
                         ...(msg.senderId ? { senderId: msg.senderId } : {}),
+                        ...(msg.senderOpenId ? { senderOpenId: msg.senderOpenId } : {}),
+                        ...(msg.senderUserId ? { senderUserId: msg.senderUserId } : {}),
                     })
                     return
                 }

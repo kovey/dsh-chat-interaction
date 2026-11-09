@@ -289,6 +289,28 @@ test('official builders: followup messages are real dsh-llm user messages (id + 
     layer.teardown()
 })
 
+test('卡片点击（chatType=unknown）不会覆盖项目 P2P 标记', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-layer-'))
+    const ctx = new FakeContext(tmp)
+    const layer = apply(ctx, {
+        logFile: path.join(tmp, 'layer.log'),
+        scoring: { enabled: false },
+        channels: { feishu: { appId: 'x', appSecret: 'y' } },
+    } as never) as DshChatLayer
+    await layer.hub.dispatch({
+        channel: 'feishu',
+        chatId: 'oc_group',
+        chatType: 'unknown',
+        messageId: 'm-card',
+        messageType: 'text',
+        text: 'A',
+        isCardAction: true,
+    } as InboundMessage)
+    const p2p = path.join(tmp, '.dsh', 'feishu-last-p2p-chat.txt')
+    assert.equal(fs.existsSync(p2p), false, '群聊里的卡片点击不得写成 P2P 目标')
+    layer.teardown()
+})
+
 test('scoring: high-complexity messages route to the configured model and the turn is annotated', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-layer-'))
     const ctx = new FakeContext(tmp)

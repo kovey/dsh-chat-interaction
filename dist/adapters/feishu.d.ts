@@ -80,6 +80,33 @@ export declare function extractImageRefs(msgType: string, rawContent: string): A
 /** Rebuild a clicked card: original header + body, button row replaced by the choice. */
 export declare function buildUpdatedCard(cardStoreDir: string, messageId: string, choice: string): unknown | null;
 /** Resolve Feishu credentials: config → explicit file → project → home → env. */
+/**
+ * Identity fields of one inbound event. Feishu's `open_id` is always present;
+ * `user_id` needs the employee-id permission and is absent for external users,
+ * so the ORDER matters: an allowlist that stores open_ids must keep working
+ * even when user_id is missing (that was a real bug: only user_id was read).
+ */
+export declare function parseSenderIdentity(raw: unknown): {
+    senderId: string;
+    senderOpenId?: string;
+    senderUserId?: string;
+};
+/** The identity/chat fields of a `card.action.trigger` payload. */
+export interface ParsedCardAction {
+    chatId: string;
+    messageId: string;
+    choice: string;
+    senderId: string;
+    senderOpenId?: string;
+    senderUserId?: string;
+    /**
+     * A card click carries no chat type. It must NOT claim 'p2p': a group click
+     * would otherwise overwrite the project's last-p2p marker.
+     */
+    chatType: 'unknown';
+}
+/** Parse a card action (pure: no card store, no reply side effects). */
+export declare function parseCardAction(data: Record<string, unknown>): ParsedCardAction | null;
 export declare function resolveFeishuCreds(cwd: string, cfg: FeishuChannelConfig): {
     appId: string;
     appSecret: string;

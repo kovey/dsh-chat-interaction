@@ -567,7 +567,17 @@ function applyInner(ctx, config, artifacts) {
                     const r = await hub.waitReply(channel, id, t, sig);
                     if (!r.ok || r.timedOut)
                         return null;
-                    return { channel, chatId: id, chatType: 'p2p', text: r.text, isCardAction: r.isCardAction, senderId: r.senderId, messageId: r.messageId };
+                    return {
+                        channel,
+                        chatId: id,
+                        chatType: r.chatType ?? 'unknown',
+                        text: r.text,
+                        isCardAction: r.isCardAction,
+                        senderId: r.senderId,
+                        ...(r.senderOpenId === undefined ? {} : { senderOpenId: r.senderOpenId }),
+                        ...(r.senderUserId === undefined ? {} : { senderUserId: r.senderUserId }),
+                        messageId: r.messageId,
+                    };
                 },
             }, cmd, signal);
         },

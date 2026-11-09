@@ -33,8 +33,12 @@ export interface InboundMessage {
     messageId?: string;
     /** Platform message type (`text`, `image`, `post`, ...). */
     messageType?: string;
-    /** Sender identifier on the platform. */
+    /** Best sender identifier on the platform (open_id preferred, then user_id). */
     senderId?: string;
+    /** Feishu `open_id` — always present on inbound events; the stable id for allowlists. */
+    senderOpenId?: string;
+    /** Feishu `user_id` — permission/per-org dependent; may be absent. */
+    senderUserId?: string;
     /** Human-readable text (post/rich messages flattened). */
     text: string;
     /** True when this message was synthesized from an interactive-card click. */
@@ -104,6 +108,10 @@ export interface WaitResult {
      * specification approval and in the delivery receipt).
      */
     senderId?: string;
+    /** Feishu open_id of the sender (when the platform reported it). */
+    senderOpenId?: string;
+    /** Feishu user_id of the sender (when the platform reported it). */
+    senderUserId?: string;
 }
 /** What a channel adapter is able to do. The tools layer reads this. */
 export interface ChannelCapabilities {

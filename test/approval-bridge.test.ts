@@ -65,7 +65,7 @@ test('buildContextCard: fields instead of an essay, buttons bound to the nonce',
 })
 
 /** A hub stand-in: scripted replies, recorded sends. */
-function harness(replies: { text?: string; senderId?: string; messageId?: string }[]) {
+function harness(replies: { text?: string; senderId?: string; senderOpenId?: string; senderUserId?: string; messageId?: string }[]) {
     const sent: { title: string; body: string; buttons: { value: string }[] }[] = []
     const repliesLeft = [...replies]
     return {
@@ -386,4 +386,39 @@ test('hub.sendFile: 未记录会话时拒绝，且不调用适配器', async () 
     assert.match(r.error || '', /no chat recorded/)
     assert.equal(called, 0, '空会话不得调用适配器')
     hub.teardown()
+})
+
+
+test('identity: an approver list containing open_id matches a click that only carries open_id', async () => {
+    const { opts, sent } = harness([])
+    // Feishu card callbacks frequently omit user_id; the click carries open_id only.
+    opts.waitReply = async () => ({
+        channel: 'feishu',
+        chatId: 'oc_1',
+        chatType: 'p2p' as const,
+        text: String(sent[0]?.buttons[0]?.value ?? ''),
+        senderId: '',
+        senderOpenId: 'ou_boss',
+        messageId: 'om_1',
+    })
+    const decision = await askViaChannel({ ...opts, approvers: ['ou_boss'] } as never, CONTEXT_REASON)
+    assert.ok(decision, 'open_id on the approver list must be accepted')
+    assert.equal(decision!.decision, 'allow')
+    assert.equal(decision!.by, 'ou_boss', 'provenance must record the matched open_id, not an empty senderId')
+})
+
+test('identity: a user_id-only click still matches a user_id allowlist entry', async () => {
+    const { opts, sent } = harness([])
+    opts.waitReply = async () => ({
+        channel: 'feishu',
+        chatId: 'oc_1',
+        chatType: 'p2p' as const,
+        text: String(sent[0]?.buttons[0]?.value ?? ''),
+        senderId: 'u_1',
+        senderUserId: 'u_1',
+        messageId: 'om_1',
+    })
+    const decision = await askViaChannel({ ...opts, approvers: ['u_1'] } as never, CONTEXT_REASON)
+    assert.equal(decision?.decision, 'allow')
+    assert.equal(decision?.by, 'u_1')
 })
