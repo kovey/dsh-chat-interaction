@@ -129,19 +129,19 @@ test('clicking A writes auto mode, closes the question, and continues the task',
     followups.length = 0
     await hub.dispatch(msg({ messageId: 'card-1', text: 'A', isCardAction: true }))
     assert.equal(pendingStore.has('probe', 'chat-1'), false, 'question closed')
-    const modeFile = path.join(tmp, '.dsh', 'probe-permission-mode.txt')
+    const modeFile = path.join(tmp, '.dsh', 'chat-interaction', 'probe-permission-mode.txt')
     assert.equal(fs.readFileSync(modeFile, 'utf8').trim(), 'auto')
     assert.equal(followups.length, 1, 'the agent continues the requirement flow')
     assert.match(followups[0].note || '', /权限模式已选择: 全自动/)
     assert.ok(ch.sent.some((t) => /已切换权限模式: 全自动/.test(t)))
-    assert.ok(fs.existsSync(path.join(tmp, '.dsh', 'probe-permission-allowlist.txt')), 'allowlist reset')
+    assert.ok(fs.existsSync(path.join(tmp, '.dsh', 'chat-interaction', 'probe-permission-allowlist.txt')), 'allowlist reset')
 })
 
 test('clicking B writes manual mode', async () => {
     const { tmp, hub } = setup()
     await hub.dispatch(msg({ text: '新增一个活动功能' }))
     await hub.dispatch(msg({ messageId: 'card-1', text: 'B', isCardAction: true }))
-    assert.equal(fs.readFileSync(path.join(tmp, '.dsh', 'probe-permission-mode.txt'), 'utf8').trim(), 'manual')
+    assert.equal(fs.readFileSync(path.join(tmp, '.dsh', 'chat-interaction', 'probe-permission-mode.txt'), 'utf8').trim(), 'manual')
 })
 
 test('cancelling closes the question without waking the agent', async () => {

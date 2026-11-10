@@ -64,7 +64,7 @@ export function apply(ctx: any) {
 
 解析失败返回 `{ ok: false, code: 'no-target' }`。
 
-> **`p2pChat` 的语义**：每个项目/渠道的 `<项目>/.dsh/<channel>-last-p2p-chat.txt` 记录的是
+> **`p2pChat` 的语义**：每个项目/渠道的 `<项目>/.dsh/chat-interaction/<channel>-last-p2p-chat.txt` 记录的是
 > **最后一个私聊者**（最近一次 P2P 入站消息的会话 id），**不是"当前审批人"也不是通用目标**。
 > 把它当作审批目标是一个坑：它可能已经换成别人。发问前若要断言"这确实是私聊"，用
 > `api.resolveChat(target)` / `api.chatKind(target)` 查询，而不是只信配置。

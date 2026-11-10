@@ -32,7 +32,7 @@ import crypto from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { BaseChannel } from '../channel.js';
 import { log } from '../log.js';
-import { dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js';
+import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js';
 // ---------------------------------------------------------------------------
 // message-crypto fallback (documented WeCom algorithm)
 // ---------------------------------------------------------------------------
@@ -92,6 +92,8 @@ export function parseWeComXml(xml) {
 export function resolveWeComCreds(cwd, cfg) {
     const candidates = [
         cfg.credsFile ? expandHome(cfg.credsFile) : '',
+        // plugin-owned root first, then the legacy flat `.dsh` location
+        path.join(chatStateDir(cwd), 'wecom-app.json'),
         path.join(projStateDir(cwd), 'wecom-app.json'),
         path.join(dshHome(), 'wecom-app.json'),
     ];
@@ -182,7 +184,7 @@ export class WeComChannel extends BaseChannel {
             return this.cfg.mediaDir();
         if (typeof this.cfg.mediaDir === 'string')
             return expandHome(this.cfg.mediaDir);
-        return path.join(projStateDir(process.cwd()), `${this.name}-media`);
+        return path.join(chatStateDir(process.cwd()), `${this.name}-media`);
     }
     // ---- auth -------------------------------------------------------------
     async fetchJson(url, init) {

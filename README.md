@@ -52,8 +52,8 @@ pnpm 直接复用、不会装第二份（`dsh --version` 可确认宿主版本�
 # ① 从 GitHub 安装（推荐；构建产物已入库，装完即用，无需本地构建）
 dsh plugin --profile tui add github:kovey/dsh-chat-interaction
 
-#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.3.5）：
-#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.5
+#    需要可复现的固定版本时，pin 到 tag（当前最新 v0.3.6）：
+#    dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.6
 ```
 
 ② 启用 bundle —— 编辑 `~/.dsh/profiles/tui/package.json`，把包名加进 `dsh.profile.bundles`：
@@ -139,7 +139,7 @@ link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，�
 两个渠道都是**同一条解析链**（逐字段、前者优先）：
 
 ```
-① 插件 config  →  ② credsFile  →  ③ <项目>/.dsh/<渠道>-app.json
+① 插件 config  →  ② credsFile  →  ③ <项目>/.dsh/chat-interaction/<渠道>-app.json
                →  ④ ~/.dsh/<渠道>-app.json  →  ⑤ 环境变量
 ```
 
@@ -149,7 +149,7 @@ link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，�
 **飞书**（`feishu-app.json`）
 
 ```jsonc
-// <项目>/.dsh/feishu-app.json   或   ~/.dsh/feishu-app.json
+// <项目>/.dsh/chat-interaction/feishu-app.json   或   ~/.dsh/feishu-app.json
 { "app_id": "cli_xxxxxxxx", "app_secret": "xxxxxxxx" }
 ```
 
@@ -165,7 +165,7 @@ link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，�
 **企业微信**（`wecom-app.json`）
 
 ```jsonc
-// <项目>/.dsh/wecom-app.json   或   ~/.dsh/wecom-app.json
+// <项目>/.dsh/chat-interaction/wecom-app.json   或   ~/.dsh/wecom-app.json
 {
   "corp_id":     "wwxxxxxxxx",      // 我的企业 → 企业ID
   "corp_secret": "xxxxxxxx",        // 应用管理 → 自建应用 → Secret
@@ -189,7 +189,7 @@ link 安装同样要在 profile 的 `bundles` 里加 `dsh-chat-interaction`，�
 **企业微信智能机器人**（`wecom-bot.json`，免公网回调）
 
 ```jsonc
-// <项目>/.dsh/wecom-bot.json   或   ~/.dsh/wecom-bot.json
+// <项目>/.dsh/chat-interaction/wecom-bot.json   或   ~/.dsh/wecom-bot.json
 { "bot_id": "your-bot-id", "bot_secret": "your-bot-secret" }
 ```
 
@@ -288,7 +288,7 @@ export DEEPSEEK_BASE_URL=https://...  # 或兼容 OpenAI 的 baseURL；不配则
 echo manual > <项目>/.dsh/feishu-permission-mode.txt   # 或让 agent 发权限模式卡切换
 ```
 之后来自渠道的任务执行 `bash` 时，会先给飞书/企微推「同意 / 拒绝 / 始终同意」卡片；
-超时按 fail-closed 拒绝；「始终同意」把该命令追加到 `<项目>/.dsh/<渠道>-permission-allowlist.txt`。
+超时按 fail-closed 拒绝；「始终同意」把该命令追加到 `<项目>/.dsh/chat-interaction/<渠道>-permission-allowlist.txt`。
 
 **审批卡片的按钮值带一次性令牌**（`approve:<nonce>` / `reject:<nonce>` / `always:<nonce>`）：转发的卡、上一轮遗留的旧卡、
 手打的 `yes` 都不能复用。`parseAnswer()` 同时接受旧的字面量（`yes`/`no`/`always`/中文）与令牌形态，两个通道都一样；
@@ -303,16 +303,16 @@ realpath 包含校验 —— 绝对路径、`../` 逃逸、指向项目外的符
 避免材料清单被诱导成"读取任意本地文件"。超过 5 份时只发前 5 份。
 
 **严格审批人名单（可选）**：`permission.requireApproverList: true` 时，只有
-`<项目>/.dsh/<渠道>-approvers.txt` 里列出的用户能决定，名单外的人点击**不生效**（会被回一句"无权限"，且不消费这张卡）。
+`<项目>/.dsh/chat-interaction/<渠道>-approvers.txt` 里列出的用户能决定，名单外的人点击**不生效**（会被回一句"无权限"，且不消费这张卡）。
 文件里写平台上报的**同一种 id**：飞书是卡片点击事件里的 `operator.user_id`（与普通消息的 `senderId` 同一套），
 企业微信是它自己的 userid。留空 + `requireApproverList: false`（默认）= 该会话里的任何人都可以决定（保持旧行为）。
 
-**每个决定都会记账**：`<项目>/.dsh/<渠道>-approvals.jsonl` 追加一行
+**每个决定都会记账**：`<项目>/.dsh/chat-interaction/<渠道>-approvals.jsonl` 追加一行
 `{at, chatId, userId, decision, toolName, nonce, messageId, missionId?}`——包括"超时/发送失败/无权限/旧卡"这些非放行结果。
 审批材料的文件投递走 `ChannelAdapter.sendFile`（飞书已实现：上传后发文件消息），通道不支持时退化为卡片正文。
 
 **任务连续性 + 收尾卡**：需求/修复类任务开始时，插件**自动**写
-`<项目>/.dsh/<渠道>-task-active/<chat_id>.json`（含任务名 + started_at/updated_at）并进入任务模式：
+`<项目>/.dsh/chat-interaction/<渠道>-task-active/<chat_id>.json`（含任务名 + started_at/updated_at）并进入任务模式：
 
 - 任务期间该 chat 的**每一条**消息都作为**本轮任务的补充或回答**转交 agent（补充细节、
   回答 agent 的提问、提供日志…），不会被命令自治 / 闲聊直答 / 消歧卡截走；
@@ -339,7 +339,7 @@ tail -f ~/.dsh/chat-interaction-spool.jsonl      # 每条入站消息的 JSONL
 |---|---|
 | agent 没有 `feishu_*` 工具 | `bundles` 未加包名；会话未重启；（本地 link 安装时）忘了 `pnpm build` |
 | 安装时报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | 装的是带构建脚本的 fork/旧版本：按提示把该包加进 profile 的 `pnpm-workspace.yaml` → `onlyBuiltDependencies`，或改用 link 安装 |
-| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.3.5` |
+| **宿主启动崩溃，报 `cannot get property "xxx" without inject`** | v0.1.0 的缺陷已修：cordis 的 ctx 只允许访问 `inject` 声明过的服务，旧版探测未知属性会抛错并带走整个 plugin tree。升级到 **≥ v0.1.1**（最新 v0.2.0）：`dsh plugin --profile <p> add github:kovey/dsh-chat-interaction#v0.3.6` |
 | 插件装好了但什么都不做 | 日志里的 `channels: (none)`：还没配渠道。按上面「配置」一节给 `channels` 加 feishu / wecom / wecom_bot |
 | 说「连接飞书」后仍收不到消息 | 凭证缺失（`feishu_auth_state` 看 `listener_connected`）；日志里的 WS 报错；机器人未被拉进群 |
 | 企业微信回调校验失败 | `token`/`aesKey` 与后台不一致；URL 路径与 `callback.path` 不一致；签名报错在日志里 |
@@ -405,7 +405,7 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 - **入站**：Lark WSClient 长连接；`im.message.receive_v1` + `card.action.trigger`；卡片点击重建卡片并合成消息事件。
 - **图片**：下载到 `<项目>/.dsh/feishu-media/`，路径随消息交给 agent（`read_image` 直接读）；失败只记 `image_errors`，不阻断消息。
 - **出站**：text / post（富文本）/ interactive 卡片；卡片按 message_id 存档供点击重建。
-- 凭证链（逐字段）：config → `credsFile` → `<项目>/.dsh/feishu-app.json` → `~/.dsh/feishu-app.json` → `FEISHU_APP_ID`/`FEISHU_APP_SECRET`。详见「使用 → 渠道凭证」。
+- 凭证链（逐字段）：config → `credsFile` → `<项目>/.dsh/chat-interaction/feishu-app.json` → `~/.dsh/feishu-app.json` → `FEISHU_APP_ID`/`FEISHU_APP_SECRET`。详见「使用 → 渠道凭证」。
 - **依赖**：`@larksuiteoapi/node-sdk >= 1.60.0` 随插件自动安装（optionalDependencies）；
   若被跳过，`feishu_listener start` 会给出补装命令，也可用 `config.sdk` 注入自定义客户端。
 
@@ -437,7 +437,7 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
 - **出站**：text（自动按 2048 字节上限分片）、markdown 富文本（不支持时优雅降级为 text）、`template_card` button_interaction 卡片。
 - **卡片点击**：企业微信点击事件**不带 ChatId**，只有 TaskId+EventKey——适配器发送卡片时持久化 `task_id → {chatId, buttons}` 映射，点击时还原出正确的 chat 和按钮值。
 - 解密优先用官方 `@wecom/crypto`（若已安装），否则用内置的文档算法实现（AES-256-CBC + PKCS7 + 16 字节随机前缀 + 4 字节长度），零依赖可用。
-- 凭证链（与飞书一致，逐字段）：config → `credsFile` → `<项目>/.dsh/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_CORP_ID`/`WECOM_CORP_SECRET`/`WECOM_AGENT_ID`/`WECOM_TOKEN`/`WECOM_AES_KEY`。只发不收时可省 `token`/`aes_key`。
+- 凭证链（与飞书一致，逐字段）：config → `credsFile` → `<项目>/.dsh/chat-interaction/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_CORP_ID`/`WECOM_CORP_SECRET`/`WECOM_AGENT_ID`/`WECOM_TOKEN`/`WECOM_AES_KEY`。只发不收时可省 `token`/`aes_key`。
 
 #### `wecom_bot` — 智能机器人（WS 长连接，免公网）
 
@@ -445,10 +445,10 @@ const answer = await hub.waitReply('feishu', chatId, 120_000)
   群聊取 `chatid`、单聊取 `from.userid` 作为会话 id（正好也是回复用的 `chatid`）。
 - **事件**：`message.text/image/mixed/voice/file/video` 归一化成消息；`event.template_card_event` 归一化成卡片点击
   （`text = event_key`）；`event.enter_chat` / `event.feedback_event` 不作为回合。
-- **图片**：帧内 URL + 每消息独立 `aeskey`，由 SDK `downloadFile()` 解密后落到 `<项目>/.dsh/wecom_bot-media/`。
+- **图片**：帧内 URL + 每消息独立 `aeskey`，由 SDK `downloadFile()` 解密后落到 `<项目>/.dsh/chat-interaction/wecom_bot-media/`。
 - **出站**：`sendMessage(chatid, body)`；`sendText` 先试 `text` 帧、失败自动回落 `markdown`；卡片用 `template_card.button_interaction`。
-- **凭证链**：config(`botId`/`secret`) → `credsFile` → `<项目>/.dsh/wecom-bot.json` → `~/.dsh/wecom-bot.json`
-  → `<项目>/.dsh/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_BOT_ID`/`WECOM_BOT_SECRET`
+- **凭证链**：config(`botId`/`secret`) → `credsFile` → `<项目>/.dsh/chat-interaction/wecom-bot.json` → `~/.dsh/wecom-bot.json`
+  → `<项目>/.dsh/chat-interaction/wecom-app.json` → `~/.dsh/wecom-app.json` → `WECOM_BOT_ID`/`WECOM_BOT_SECRET`
   （文件键 `bot_id`/`bot_secret`，兼容 `aibot_id`）。
 - **依赖**：`pnpm add @wecom/aibot-node-sdk`（可选 peer；未装时只有该渠道不可用，其余功能不受影响）。
 
@@ -499,7 +499,7 @@ class DingChannel extends BaseChannel {
 | 分类 | 处理 | 说明 |
 |---|---|---|
 | `task` | 转交 agent（任务补充/回答） | 该会话有进行中的任务 → **所有**消息都作为本轮任务的补充或回答交给 agent（不被命令自治/闲聊/消歧截走），并**自动续期**任务标记；任务名会写进回合上下文 |
-| `confirmation` | 插件内闭环 | 有 pending 问题时解析答案（选项字母 / 是/否/同意 / 全自动/需审批 / 取消）；权限模式选择写入 `<项目>/.dsh/<渠道>-permission-mode.txt`（并重置 allowlist）后**继续推进任务**；**看起来像新指令**的消息绝不吞掉——保持问题打开并转交 agent |
+| `confirmation` | 插件内闭环 | 有 pending 问题时解析答案（选项字母 / 是/否/同意 / 全自动/需审批 / 取消）；权限模式选择写入 `<项目>/.dsh/chat-interaction/<渠道>-permission-mode.txt`（并重置 allowlist）后**继续推进任务**；**看起来像新指令**的消息绝不吞掉——保持问题打开并转交 agent |
 | `command` | 插件内执行 | 安全层：白名单前缀 + 禁止规则；危险命令（`git push`、`rm -rf`、`cat .env`、`deploy`…）**不执行**，转交 agent 走审批流程；输出截断后回执 |
 | `requirement` / `bugfix` | 转交 agent **+ 自动发权限模式卡** | 插件发「[需要确认] 权限模式」卡（A 全自动 / B 需审批）+「[收到] 需求已接收」回执，记为 pending；agent 同时开始分析（收到卡片前不重复询问权限模式） |
 | `chat` | 插件内直答 / 消歧 | 有模型 key 时用每 chat 会话记忆直答；**无 key 时发「[消歧] 未识别消息」卡**（1 新指令 / 2 闲聊忽略 / 3 其它）——选 1 会把**原文**重放给 agent（不是按钮值），选 2 直接忽略 |
@@ -508,7 +508,7 @@ class DingChannel extends BaseChannel {
 - **自动发起**：`autoPermissionCard`（默认 true，任务类消息发权限模式卡）、`autoDisambiguation`（默认 true，无法分类且无模型时发消歧卡）；都可用 `false` 关闭。
 - 关闭自动发起后行为回落到"全部转交 agent"，管线依然完整。
 - **命令安全层**：`securityCheck()` 是纯函数，白名单 + 禁止规则双重校验；shell 元字符只放行自己生成的固定管线（如 `ps aux | head -20`）。
-- **每 chat 记忆**：`chatDir`（默认 `~/.dsh/chat-history/<渠道>/<chat_id>.json`），保留 `chatHistoryTurns` 轮。
+- **每 chat 记忆**：`chatDir`（默认 `<项目>/.dsh/chat-interaction/chat-history/<渠道>/<chat_id>.json`），保留 `chatHistoryTurns` 轮。
 - 没有模型 key、没有命令、甚至 router 整个关掉：管线仍然完整（全部转交 agent）。
 
 ## 24×7 与心跳接管（lease）
@@ -676,7 +676,7 @@ if (chat?.apiVersion >= 1) {
   enabled: true,                       // 总开关
   logFile: '~/.dsh/chat-interaction.log',
   spoolFile: '~/.dsh/chat-interaction-spool.jsonl', // 每条入站消息 JSONL tee
-  pendingDir: '~/.dsh/chat-pending',   // 插件待确认问题存储（按渠道分目录）
+  pendingDir: '<项目>/.dsh/chat-interaction/pending',   // 插件待确认问题存储（按渠道分目录）
   retry: {                             // 模型失败重投守卫; false 关闭
     maxAttempts: 10, baseDelayMs: 30_000, capDelayMs: 600_000, pollMs: 5_000,
   },
@@ -770,6 +770,32 @@ src/
   harness.ts          DshBridge: 官方 createUserMessage/defineTool + agent.followup
   model-selection.ts  打分回合的临时模型覆盖：官方 installModelSelection + 回合结束恢复
 ```
+
+### 项目内运行时目录
+
+插件的**所有**状态、运行时与凭据文件都放在插件自己的子目录里（不再和工程套件的台账混在 `.dsh/` 根下）：
+
+```
+<repo>/.dsh/chat-interaction/
+  <channel>-active-chat.txt           最近活跃会话
+  <channel>-last-p2p-chat.txt         最后一个私聊者（P2P 标记）
+  <channel>-permission-mode.txt       权限模式（auto / manual）
+  <channel>-permission-allowlist.txt  命令白名单
+  <channel>-approvers.txt             审批人名单（open_id 或 user_id 均可）
+  <channel>-approvals.jsonl           审批账本（append-only）
+  <channel>-cards/                    卡片存档（点击后重建）
+  <channel>-media/                    入站图片/文件
+  <channel>-task-active/              任务连续性标记
+  feishu-app.json / wecom-app.json / wecom-bot.json   项目级凭据（可选）
+  pending/                            待答问题
+  chat-history/                       每 chat 对话记忆
+  chat-interaction-lease-<channel>-<account>.json     渠道租约
+```
+
+- 升级时会在首次运行**自动迁移**旧 `<repo>/.dsh/*` 下的小型状态（active/p2p/权限/审批人/账本/凭据 + `pending/`、`chat-history/`）：
+  **只复制、不删除**，旧文件保留作备份，确认无误后可手动清理。
+- 卡片、媒体、任务标记与租约**不迁移**：它们是可重建或进程内的（复制一个活租约等于伪造持有者）。
+- 凭据解析顺序：`chat-interaction/<渠道>-app.json` → 旧 `<repo>/.dsh/<渠道>-app.json` → `~/.dsh/<渠道>-app.json` → 环境变量。
 
 ## 开发
 

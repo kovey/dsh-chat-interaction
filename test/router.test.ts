@@ -120,7 +120,7 @@ function setup(over: {
 test('router: task-active chats go straight to the agent', async () => {
     const followups: InboundMessage[] = []
     const { tmp, hub, ch } = setup({ followups })
-    const dir = path.join(process.cwd(), '.dsh', 'probe-task-active')
+    const dir = path.join(process.cwd(), '.dsh', 'chat-interaction', 'probe-task-active')
     fs.mkdirSync(dir, { recursive: true })
     const marker = path.join(dir, 'chat-1.json')
     fs.writeFileSync(marker, JSON.stringify({ chat_id: 'chat-1', task: 'x', updated_at: new Date().toISOString() }))

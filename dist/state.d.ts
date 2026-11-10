@@ -5,9 +5,27 @@ export declare function projStateDir(cwd?: string): string;
 export declare function inGitRepo(cwd?: string): boolean;
 /** `~` expansion with DSH-home awareness (`~/.dsh` resolves to $DSH_HOME). */
 export declare function expandHome(p: string | null | undefined): string;
+/** Root of everything THIS plugin owns inside a project: `<repo>/.dsh/chat-interaction`. */
+export declare function chatStateDir(cwd?: string): string;
+/** Result of the one-time legacy-state migration (copy only, never delete). */
+export interface MigrationResult {
+    copied: number;
+    skipped: number;
+    target: string;
+}
+/**
+ * One-time, idempotent migration of the old flat `<repo>/.dsh/*` state into
+ * `<repo>/.dsh/chat-interaction/`. Copies (never moves, never deletes) only the
+ * small human/runtime artifacts: active-chat / p2p / permission / approvers /
+ * approvals / credential files, plus `pending/` and `chat-history/`.
+ * Cards, media, task markers and leases are intentionally left behind — they are
+ * reproducible or process-local, and copying a live lease would fake a holder.
+ */
+export declare function migrateLegacyState(cwd?: string, log?: (level: string, ...msg: unknown[]) => void): MigrationResult;
 /**
  * Every state path one channel needs inside one project context.
  * `channel` is the adapter name (`feishu`, `wecom`, ...).
+ * Everything lives under `<repo>/.dsh/chat-interaction/` (this plugin's own root).
  */
 export declare function statePaths(channel: string, cwd?: string, cfg?: {
     cardStoreDir?: string;

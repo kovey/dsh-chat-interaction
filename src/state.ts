@@ -63,12 +63,86 @@ export function expandHome(p: string | null | undefined): string {
     return p
 }
 
+/** Root of everything THIS plugin owns inside a project: `<repo>/.dsh/chat-interaction`. */
+export function chatStateDir(cwd = process.cwd()): string {
+    return path.join(projStateDir(cwd), 'chat-interaction')
+}
+
+/** Result of the one-time legacy-state migration (copy only, never delete). */
+export interface MigrationResult {
+    copied: number
+    skipped: number
+    target: string
+}
+
+/** Small text/JSON state worth carrying over (NOT cards/media/task markers/leases). */
+const LEGACY_FILE = /(?:active-chat|last-p2p-chat|permission-mode|permission-allowlist|approvers)\.txt$|approvals\.jsonl$/
+const LEGACY_CREDS = new Set(['feishu-app.json', 'wecom-app.json', 'wecom-bot.json'])
+const LEGACY_DIRS = ['pending', 'chat-history']
+
+function copyFileIfMissing(from: string, to: string, result: MigrationResult): void {
+    try {
+        if (!fs.statSync(from).isFile()) return
+    } catch { return }
+    if (fs.existsSync(to)) { result.skipped += 1; return }
+    try {
+        fs.mkdirSync(path.dirname(to), { recursive: true })
+        fs.copyFileSync(from, to)
+        result.copied += 1
+    } catch { /* best effort */ }
+}
+
+function copyDirIfMissing(fromDir: string, toDir: string, result: MigrationResult): void {
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(fromDir, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+        const from = path.join(fromDir, entry.name)
+        const to = path.join(toDir, entry.name)
+        if (entry.isDirectory()) copyDirIfMissing(from, to, result)
+        else if (entry.isFile()) copyFileIfMissing(from, to, result)
+    }
+}
+
+/**
+ * One-time, idempotent migration of the old flat `<repo>/.dsh/*` state into
+ * `<repo>/.dsh/chat-interaction/`. Copies (never moves, never deletes) only the
+ * small human/runtime artifacts: active-chat / p2p / permission / approvers /
+ * approvals / credential files, plus `pending/` and `chat-history/`.
+ * Cards, media, task markers and leases are intentionally left behind — they are
+ * reproducible or process-local, and copying a live lease would fake a holder.
+ */
+export function migrateLegacyState(
+    cwd = process.cwd(),
+    log?: (level: string, ...msg: unknown[]) => void
+): MigrationResult {
+    const legacy = projStateDir(cwd)
+    const target = chatStateDir(cwd)
+    const result: MigrationResult = { copied: 0, skipped: 0, target }
+    if (path.resolve(legacy) === path.resolve(target)) return result
+    let entries: fs.Dirent[] = []
+    try { entries = fs.readdirSync(legacy, { withFileTypes: true }) } catch { return result }
+    for (const entry of entries) {
+        const from = path.join(legacy, entry.name)
+        const to = path.join(target, entry.name)
+        if (entry.isDirectory()) {
+            if (LEGACY_DIRS.includes(entry.name)) copyDirIfMissing(from, to, result)
+            continue
+        }
+        if (entry.isFile() && (LEGACY_FILE.test(entry.name) || LEGACY_CREDS.has(entry.name))) {
+            copyFileIfMissing(from, to, result)
+        }
+    }
+    if (result.copied > 0) log?.('info', `migrated ${result.copied} legacy state file(s) into ${target}`)
+    return result
+}
+
 /**
  * Every state path one channel needs inside one project context.
  * `channel` is the adapter name (`feishu`, `wecom`, ...).
+ * Everything lives under `<repo>/.dsh/chat-interaction/` (this plugin's own root).
  */
 export function statePaths(channel: string, cwd = process.cwd(), cfg: { cardStoreDir?: string; mediaRetentionDays?: number } = {}) {
-    const proj = projStateDir(cwd)
+    const proj = chatStateDir(cwd)
     return {
         proj,
         activeChat: path.join(proj, `${channel}-active-chat.txt`),

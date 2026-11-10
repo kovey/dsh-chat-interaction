@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { BaseChannel } from '../channel.js';
 import { log, sdkLogger } from '../log.js';
-import { dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js';
+import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js';
 const DOC_LINK_RE = /https?:\/\/[a-z0-9-]+\.(?:feishu\.cn|larksuite\.com)\/(?:docx|wiki|docs\/doccn)\/([A-Za-z0-9]+)/g;
 /** Extract Feishu doc/wiki links from text. */
 export function extractDocIds(text) {
@@ -213,6 +213,8 @@ export function resolveFeishuCreds(cwd, cfg) {
         return { appId: String(cfg.appId), appSecret: String(cfg.appSecret) };
     const candidates = [
         cfg.credsFile ? expandHome(cfg.credsFile) : '',
+        // plugin-owned root first, then the legacy flat `.dsh` location
+        path.join(chatStateDir(cwd), 'feishu-app.json'),
         path.join(projStateDir(cwd), 'feishu-app.json'),
         path.join(dshHome(), 'feishu-app.json'),
     ];
@@ -349,14 +351,14 @@ export class FeishuChannel extends BaseChannel {
     cardStoreDir(cwd) {
         // Project-scoped by default: a card click must resolve against the cards
         // THIS project sent (two projects sharing a bot must not cross-read).
-        return expandHome(this.cfg.cardStoreDir || path.join(projStateDir(cwd), `${this.name}-cards`));
+        return expandHome(this.cfg.cardStoreDir || path.join(chatStateDir(cwd), `${this.name}-cards`));
     }
     mediaDir(cwd) {
         if (typeof this.cfg.mediaDir === 'function')
             return this.cfg.mediaDir();
         if (typeof this.cfg.mediaDir === 'string')
             return expandHome(this.cfg.mediaDir);
-        return path.join(projStateDir(cwd), `${this.name}-media`);
+        return path.join(chatStateDir(cwd), `${this.name}-media`);
     }
     async connect() {
         if (this.disposed)

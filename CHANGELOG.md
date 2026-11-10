@@ -5,6 +5,24 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.6] - 2026-11-10
+
+### 变更 —— 插件状态目录统一到 `<repo>/.dsh/chat-interaction/`
+
+- 新增 `chatStateDir(cwd)`（= `<repo>/.dsh/chat-interaction/`），`statePaths` 的全部字段以此为根：
+  active chat / p2p 标记 / 权限模式 / allowlist / 审批人 / 审批账本 / 卡片 / 媒体 / 任务标记。
+- 同一目录下还有：`pending/`（待答问题）、`chat-history/`（每 chat 记忆）、
+  `chat-interaction-lease-*.json`（渠道租约）、`<channel>-app.json`（项目级凭据源码）。
+  不再与工程套件的 `.dsh/specs`、`.dsh/missions`、`.dsh/state` 等台账混在一层。
+- **自动迁移**（幂等、只复制不删除）：首次运行时把旧 `<repo>/.dsh/*` 下的
+  active-chat / p2p / 权限模式 / allowlist / 审批人 / 审批账本 / 凭据，以及 `pending/`、`chat-history/`
+  复制到新目录；卡片、媒体、任务标记与租约不迁移（可重建或进程内）。
+  已存在的新文件不会被旧文件覆盖。
+- **凭据顺序**：`chat-interaction/<channel>-app.json` → 旧 `<repo>/.dsh/<channel>-app.json`
+  → `~/.dsh/<channel>-app.json` → 环境变量（旧路径继续可读，现有部署无需改动）。
+- 文档：README 新增「项目内运行时目录」；UPGRADE 更新状态位置表与迁移说明；API.md 的 `p2pChat` 路径同步。
+- 测试：新增迁移（复制/幂等/不迁移 cards-media-lease/空目录无副作用）与凭据优先级用例 → 套件 239 → 244。
+
 ## [0.3.5] - 2026-11-09
 
 ### 修复 —— 飞书身份只取 user_id 导致白名单必然失败
@@ -426,6 +444,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.6
 [0.3.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.5
 [0.3.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.4
 [0.3.3]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.3

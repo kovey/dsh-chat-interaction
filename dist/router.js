@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { exec } from 'node:child_process';
 import { log as defaultLog } from './log.js';
-import { expandHome, projStateDir, readFileSafe, writeFileSafe } from './state.js';
+import { chatStateDir, expandHome, readFileSafe, writeFileSafe } from './state.js';
 import { isModelAvailable, readModelCatalog, warnOnce } from './model-catalog.js';
 const ROUTER_DEFAULTS = {
     enabled: true,
@@ -299,7 +299,7 @@ export function createRouter(deps) {
     const chatHistoryPath = (channel, chatId) => {
         // Conversation memory belongs to the project that owns it: a global slot
         // leaks one project's chat history into another (and mixes same-bot chats).
-        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(projStateDir(cwdOf()), 'chat-history');
+        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(chatStateDir(cwdOf()), 'chat-history');
         return path.join(base, channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
     };
     const loadHistory = (channel, chatId) => {
@@ -316,7 +316,7 @@ export function createRouter(deps) {
         writeFileSafe(chatHistoryPath(channel, chatId), JSON.stringify(history.slice(-keep)));
     };
     /** Where a chat's task-active marker lives (per project, per channel). */
-    const taskMarkerFile = (msg) => path.join(projStateDir(cwdOf()), `${msg.channel}-task-active`, `${msg.chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
+    const taskMarkerFile = (msg) => path.join(chatStateDir(cwdOf()), `${msg.channel}-task-active`, `${msg.chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`);
     /**
      * Read the task-active marker. Task mode means: every message in this chat
      * belongs to the running task (supplement / answer), so the router must
@@ -473,12 +473,12 @@ export function createRouter(deps) {
     };
     /** Persist a permission-mode choice (and reset the allowlist, as dsh-feishu does). */
     const writePermissionMode = (channel, mode) => {
-        const proj = projStateDir(cwdOf());
+        const proj = chatStateDir(cwdOf());
         writeFileSafe(path.join(proj, `${channel}-permission-mode.txt`), mode + '\n');
         writeFileSafe(path.join(proj, `${channel}-permission-allowlist.txt`), '');
     };
     const readPermissionMode = (channel) => {
-        const t = readFileSafe(path.join(projStateDir(cwdOf()), `${channel}-permission-mode.txt`)).trim();
+        const t = readFileSafe(path.join(chatStateDir(cwdOf()), `${channel}-permission-mode.txt`)).trim();
         return t === 'auto' || t === 'manual' ? t : '';
     };
     /** Send an interactive card through the hub (never throws). */

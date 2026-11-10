@@ -33,7 +33,7 @@ import { randomUUID } from 'node:crypto'
 import { BaseChannel } from '../channel.js'
 import type { ButtonSpec, CardSpec, InboundMessage, ListenerStatus, SendResult } from '../types.js'
 import { log } from '../log.js'
-import { dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
+import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
 
 export interface WeComChannelConfig {
     corpId?: string
@@ -150,6 +150,8 @@ export interface WeComCreds {
 export function resolveWeComCreds(cwd: string, cfg: WeComChannelConfig): WeComCreds {
     const candidates = [
         cfg.credsFile ? expandHome(cfg.credsFile) : '',
+        // plugin-owned root first, then the legacy flat `.dsh` location
+        path.join(chatStateDir(cwd), 'wecom-app.json'),
         path.join(projStateDir(cwd), 'wecom-app.json'),
         path.join(dshHome(), 'wecom-app.json'),
     ]
@@ -247,7 +249,7 @@ export class WeComChannel extends BaseChannel {
     private mediaDir(): string {
         if (typeof this.cfg.mediaDir === 'function') return this.cfg.mediaDir()
         if (typeof this.cfg.mediaDir === 'string') return expandHome(this.cfg.mediaDir)
-        return path.join(projStateDir(process.cwd()), `${this.name}-media`)
+        return path.join(chatStateDir(process.cwd()), `${this.name}-media`)
     }
 
     // ---- auth -------------------------------------------------------------

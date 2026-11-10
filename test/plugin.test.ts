@@ -231,7 +231,7 @@ test('role=listener connects at startup (deployment decision)', async () => {
 
 test('authState reflects the permission mode file and listener state', () => {
     const { tmp, layer } = setup()
-    const dshDir = path.join(tmp, '.dsh')
+    const dshDir = path.join(tmp, '.dsh', 'chat-interaction')
     fs.mkdirSync(dshDir, { recursive: true })
     fs.writeFileSync(path.join(dshDir, 'feishu-permission-mode.txt'), 'manual\n')
     const st = layer.authState('feishu')
@@ -306,7 +306,7 @@ test('卡片点击（chatType=unknown）不会覆盖项目 P2P 标记', async ()
         text: 'A',
         isCardAction: true,
     } as InboundMessage)
-    const p2p = path.join(tmp, '.dsh', 'feishu-last-p2p-chat.txt')
+    const p2p = path.join(tmp, '.dsh', 'chat-interaction', 'feishu-last-p2p-chat.txt')
     assert.equal(fs.existsSync(p2p), false, '群聊里的卡片点击不得写成 P2P 目标')
     layer.teardown()
 })

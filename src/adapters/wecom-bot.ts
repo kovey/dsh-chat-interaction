@@ -24,7 +24,7 @@ import path from 'node:path'
 import { BaseChannel } from '../channel.js'
 import type { ButtonSpec, CardSpec, InboundMessage, ListenerStatus, SendResult } from '../types.js'
 import { log } from '../log.js'
-import { dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
+import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
 
 // ---------------------------------------------------------------------------
 // structural types for the official SDK (loaded lazily)
@@ -90,6 +90,9 @@ export interface WeComBotCreds {
 export function resolveWeComBotCreds(cwd: string, cfg: WeComBotChannelConfig): WeComBotCreds {
     const candidates = [
         cfg.credsFile ? expandHome(cfg.credsFile) : '',
+        // plugin-owned root first, then the legacy flat `.dsh` locations
+        path.join(chatStateDir(cwd), 'wecom-bot.json'),
+        path.join(chatStateDir(cwd), 'wecom-app.json'),
         path.join(projStateDir(cwd), 'wecom-bot.json'),
         path.join(dshHome(), 'wecom-bot.json'),
         path.join(projStateDir(cwd), 'wecom-app.json'),
@@ -161,7 +164,7 @@ export class WeComBotChannel extends BaseChannel {
     private mediaDir(): string {
         if (typeof this.cfg.mediaDir === 'function') return this.cfg.mediaDir()
         if (typeof this.cfg.mediaDir === 'string') return expandHome(this.cfg.mediaDir)
-        return path.join(projStateDir(process.cwd()), `${this.name}-media`)
+        return path.join(chatStateDir(process.cwd()), `${this.name}-media`)
     }
 
     /** Lazy SDK load: injected mock or dynamic import of the official package. */

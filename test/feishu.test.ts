@@ -109,3 +109,14 @@ test('parseCardAction: operator.open_id alone yields a usable sender; chatType s
     // missing chat/choice → null
     assert.equal(parseCardAction({ event: { operator: { open_id: 'x' } } }), null)
 })
+
+test('resolveFeishuCreds: chat-interaction/ wins over the legacy flat project file', () => {
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-creds-'))
+    const pluginRoot = path.join(proj, '.dsh', 'chat-interaction')
+    fs.mkdirSync(pluginRoot, { recursive: true })
+    fs.writeFileSync(path.join(proj, '.dsh', 'feishu-app.json'), JSON.stringify({ app_id: 'cli_old', app_secret: 'old' }))
+    fs.writeFileSync(path.join(pluginRoot, 'feishu-app.json'), JSON.stringify({ app_id: 'cli_new', app_secret: 'new' }))
+    const creds = resolveFeishuCreds(proj, {} as never)
+    assert.equal(creds.appId, 'cli_new')
+    assert.equal(creds.appSecret, 'new')
+})

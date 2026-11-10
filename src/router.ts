@@ -27,7 +27,7 @@ import type { MessageRouter, RouterDecision, InteractionHub } from './hub.js'
 import type { PendingStore } from './pending.js'
 import { log as defaultLog } from './log.js'
 import type { LogFn } from './log.js'
-import { expandHome, projStateDir, readFileSafe, writeFileSafe } from './state.js'
+import { chatStateDir, expandHome, readFileSafe, writeFileSafe } from './state.js'
 import type { CommandRegistry } from './api.js'
 import { isModelAvailable, readModelCatalog, warnOnce } from './model-catalog.js'
 import type { InboundMessage } from './types.js'
@@ -472,7 +472,7 @@ export function createRouter(deps: RouterDeps): MessageRouter {
     const chatHistoryPath = (channel: string, chatId: string) => {
         // Conversation memory belongs to the project that owns it: a global slot
         // leaks one project's chat history into another (and mixes same-bot chats).
-        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(projStateDir(cwdOf()), 'chat-history')
+        const base = cfg.chatDir ? expandHome(cfg.chatDir) : path.join(chatStateDir(cwdOf()), 'chat-history')
         return path.join(base, channel, `${chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
     }
 
@@ -493,7 +493,7 @@ export function createRouter(deps: RouterDeps): MessageRouter {
     /** Where a chat's task-active marker lives (per project, per channel). */
     const taskMarkerFile = (msg: InboundMessage): string =>
         path.join(
-            projStateDir(cwdOf()),
+            chatStateDir(cwdOf()),
             `${msg.channel}-task-active`,
             `${msg.chatId.replace(/[^A-Za-z0-9_-]/g, '_')}.json`
         )
@@ -660,13 +660,13 @@ export function createRouter(deps: RouterDeps): MessageRouter {
 
     /** Persist a permission-mode choice (and reset the allowlist, as dsh-feishu does). */
     const writePermissionMode = (channel: string, mode: 'auto' | 'manual'): void => {
-        const proj = projStateDir(cwdOf())
+        const proj = chatStateDir(cwdOf())
         writeFileSafe(path.join(proj, `${channel}-permission-mode.txt`), mode + '\n')
         writeFileSafe(path.join(proj, `${channel}-permission-allowlist.txt`), '')
     }
 
     const readPermissionMode = (channel: string): string => {
-        const t = readFileSafe(path.join(projStateDir(cwdOf()), `${channel}-permission-mode.txt`)).trim()
+        const t = readFileSafe(path.join(chatStateDir(cwdOf()), `${channel}-permission-mode.txt`)).trim()
         return t === 'auto' || t === 'manual' ? t : ''
     }
 

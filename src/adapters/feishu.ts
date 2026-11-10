@@ -21,7 +21,7 @@ import path from 'node:path'
 import { BaseChannel } from '../channel.js'
 import type { ButtonSpec, CardSpec, InboundMessage, ListenerStatus, SendResult } from '../types.js'
 import { log, sdkLogger } from '../log.js'
-import { dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
+import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
 
 // ---------------------------------------------------------------------------
 // minimal structural types for the Lark SDK
@@ -289,6 +289,8 @@ export function resolveFeishuCreds(cwd: string, cfg: FeishuChannelConfig): { app
     if (cfg.appId && cfg.appSecret) return { appId: String(cfg.appId), appSecret: String(cfg.appSecret) }
     const candidates = [
         cfg.credsFile ? expandHome(cfg.credsFile) : '',
+        // plugin-owned root first, then the legacy flat `.dsh` location
+        path.join(chatStateDir(cwd), 'feishu-app.json'),
         path.join(projStateDir(cwd), 'feishu-app.json'),
         path.join(dshHome(), 'feishu-app.json'),
     ]
@@ -439,13 +441,13 @@ export class FeishuChannel extends BaseChannel {
     private cardStoreDir(cwd: string): string {
         // Project-scoped by default: a card click must resolve against the cards
         // THIS project sent (two projects sharing a bot must not cross-read).
-        return expandHome(this.cfg.cardStoreDir || path.join(projStateDir(cwd), `${this.name}-cards`))
+        return expandHome(this.cfg.cardStoreDir || path.join(chatStateDir(cwd), `${this.name}-cards`))
     }
 
     private mediaDir(cwd: string): string {
         if (typeof this.cfg.mediaDir === 'function') return this.cfg.mediaDir()
         if (typeof this.cfg.mediaDir === 'string') return expandHome(this.cfg.mediaDir)
-        return path.join(projStateDir(cwd), `${this.name}-media`)
+        return path.join(chatStateDir(cwd), `${this.name}-media`)
     }
 
     override async connect(): Promise<ListenerStatus> {

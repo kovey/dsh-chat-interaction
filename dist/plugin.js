@@ -35,7 +35,7 @@ import { resolveFeishuCreds } from './adapters/feishu.js';
 import { createWeComChannel, resolveWeComCreds } from './adapters/wecom.js';
 import { createWeComBotChannel, resolveWeComBotCreds } from './adapters/wecom-bot.js';
 import { ChannelLease } from './lease.js';
-import { dshHome, expandHome, projStateDir, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js';
+import { chatStateDir, dshHome, expandHome, migrateLegacyState, projStateDir, readFileSafe, statePaths, writeActiveChat, writeFileSafe } from './state.js';
 import { getLogFile, log, setLogFile } from './log.js';
 export const name = 'dsh-chat-interaction';
 export const inject = ['tools', 'agents', 'systemPrompt'];
@@ -149,9 +149,17 @@ function applyInner(ctx, config, artifacts) {
         modelSelection: { restoreOnTurnEnd: scoring.restoreOnTurnEnd },
     });
     artifacts.bridge = bridge;
+    // One-time, idempotent: bring the old flat `.dsh/*` state into the plugin's own
+    // root (`.dsh/chat-interaction/`). Copy only — the old files stay as a backup.
+    try {
+        migrateLegacyState(bridge.cwdOf(), (level, ...msg) => log(level, ...msg));
+    }
+    catch (e) {
+        log('warn', 'legacy state migration skipped:', e.message);
+    }
     const pendingStore = new PendingStore({
         // Project-scoped: open questions belong to the project that asked them.
-        dir: cfg.pendingDir ? expandHome(cfg.pendingDir) : path.join(projStateDir(process.cwd()), 'pending'),
+        dir: cfg.pendingDir ? expandHome(cfg.pendingDir) : path.join(chatStateDir(bridge.cwdOf()), 'pending'),
     });
     // Channel-origin tracking: agentId → { at, channel } (approval gate).
     const origin = new Map();
@@ -349,7 +357,8 @@ function applyInner(ctx, config, artifacts) {
             const cwd = bridge.cwdOf();
             let identity = '';
             let sharedCred = false;
-            const projHas = (name) => fs.existsSync(path.join(projStateDir(cwd), name));
+            // The plugin's own root first, then the legacy flat `.dsh` location.
+            const projHas = (name) => fs.existsSync(path.join(chatStateDir(cwd), name)) || fs.existsSync(path.join(projStateDir(cwd), name));
             const homeHas = (name) => fs.existsSync(path.join(dshHome(), name));
             if (channel === 'feishu') {
                 const c = config.channels?.feishu;
@@ -630,7 +639,7 @@ function applyInner(ctx, config, artifacts) {
                 role: instanceRole,
                 // Leases live WITH the project (credentials and state are project-level):
                 // two projects must never block each other; same-project windows still do.
-                dir: config.lease?.dir ? expandHome(config.lease.dir) : projStateDir(bridge.cwdOf()),
+                dir: config.lease?.dir ? expandHome(config.lease.dir) : chatStateDir(bridge.cwdOf()),
                 ttlMs: config.lease?.ttlMs,
                 heartbeatMs: config.lease?.heartbeatMs,
                 log: config.log,

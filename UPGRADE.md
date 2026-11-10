@@ -19,7 +19,7 @@
 
 ```sh
 # 生产面（如 tui profile）：pin 到 tag，可复现
-dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.5
+dsh plugin --profile tui add github:kovey/dsh-chat-interaction#v0.3.6
 
 # 测试面（如 nvim-tui profile）：跟 main
 dsh plugin --profile nvim-tui add github:kovey/dsh-chat-interaction
@@ -50,15 +50,24 @@ head -1 ~/.dsh/chat-interaction.log     # 期望: … dsh-chat-interaction v0.1.
   它新增的实验包 `dsh-experimental-schedule-bundle` 与本插件无关。
 - **HMR 在 TUI / web profile 默认开启**（headless / sdk / acp 默认禁用）→ 插件会被热重载，见下一节。
 
-## 多项目下的状态位置（0.3.x 起统一到项目内）
+## 多项目下的状态位置（0.3.6 起统一到 `<项目>/.dsh/chat-interaction/`）
+
+插件自己的**全部**状态、运行时与凭据文件都在 `<项目>/.dsh/chat-interaction/` 下（不再与工程套件的
+`.dsh/specs`、`.dsh/missions`、`.dsh/state` 等台账混在同一层）：
 
 | 状态 | 位置 |
 |---|---|
-| 渠道租约 | `<项目>/.dsh/chat-interaction-lease-<channel>-<accountKey>.json` |
-| 待答问题 | `<项目>/.dsh/pending/` |
-| 卡片存档 | `<项目>/.dsh/<channel>-cards/` |
-| 对话记忆 | `<项目>/.dsh/chat-history/` |
-| 审批人 / 账本 / 权限模式 / active chat / 媒体 | `<项目>/.dsh/` |
+| 渠道租约 | `<项目>/.dsh/chat-interaction/chat-interaction-lease-<channel>-<accountKey>.json` |
+| 待答问题 | `<项目>/.dsh/chat-interaction/pending/` |
+| 卡片存档 | `<项目>/.dsh/chat-interaction/<channel>-cards/` |
+| 对话记忆 | `<项目>/.dsh/chat-interaction/chat-history/` |
+| 审批人 / 账本 / 权限模式 / active chat / P2P 标记 / 媒体 / 任务标记 | `<项目>/.dsh/chat-interaction/` |
+| 项目级凭据 | `<项目>/.dsh/chat-interaction/<channel>-app.json`（旧 `<项目>/.dsh/<channel>-app.json` 仍可读） |
+
+**从 0.3.5 及更早升级**：首次运行会自动把旧 `<项目>/.dsh/*` 下的小型状态**复制**到新目录
+（active chat / p2p / 权限模式 / allowlist / 审批人 / 审批账本 / 凭据 / `pending/` / `chat-history/`），
+**只复制、不删除**；旧文件确认无用后可手动删除。卡片、媒体、任务标记与租约**不迁移**
+（可重建或进程内，复制活租约等于伪造持有者）。
 
 **升级注意**：旧版本的全局状态文件（`~/.dsh/chat-interaction-lease-*.json`、
 `~/.dsh/chat-pending/`、`~/.dsh/<channel>-cards/`、`~/.dsh/chat-history/`）**不再读取**，

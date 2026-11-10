@@ -68,7 +68,7 @@ function setup(routerCfg: Record<string, unknown> = {}) {
         config: resolveRouterConfig({ cwdOf: () => tmp, chatDir: path.join(tmp, 'chat'), ...routerCfg }),
     })
     ;(hub as unknown as { options: { router?: unknown } }).options.router = router
-    const markerDir = path.join(tmp, '.dsh', 'probe-task-active')
+    const markerDir = path.join(tmp, '.dsh', 'chat-interaction', 'probe-task-active')
     const markerFile = path.join(markerDir, 'chat-1.json')
     const writeMarker = (task: string, updatedAt = new Date().toISOString()) => {
         fs.mkdirSync(markerDir, { recursive: true })
@@ -140,7 +140,7 @@ test('任务进行中：卡片点击仍然解决插件的待确认问题（权�
     })
     await hub.dispatch(msg({ messageId: 'card-1', text: 'A', isCardAction: true }))
     assert.equal(pendingStore.has('probe', 'chat-1'), false, 'pending 已解决')
-    assert.equal(fs.readFileSync(path.join(tmp, '.dsh', 'probe-permission-mode.txt'), 'utf8').trim(), 'auto')
+    assert.equal(fs.readFileSync(path.join(tmp, '.dsh', 'chat-interaction', 'probe-permission-mode.txt'), 'utf8').trim(), 'auto')
 })
 
 // ---------------------------------------------------------------------------
