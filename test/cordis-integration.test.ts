@@ -88,6 +88,24 @@ test('harnessFromCordis maps every host service onto the flat contract', () => {
     assert.equal(state.provided.has('chatInteraction'), true)
 })
 
+test('harnessFromCordis: dsh 0.2.2-rc.2 agent registry (list()) is discovered', () => {
+    // rc.2 removed AgentRegistry.roots(); the registry now exposes list()
+    // (all live agents, registration order). Without this fallback the plugin
+    // would find no agent and never be able to wake it.
+    const agent: HarnessAgent = {
+        id: 'root-2',
+        followup: () => undefined,
+        session: { id: 'sess-2', header: { cwd: '/tmp' }, events: [] },
+    }
+    const listed = harnessFromCordis({ agents: { list: () => [agent] } } as never)
+    assert.equal(listed.roots().length, 1)
+    assert.equal(listed.roots()[0].id, 'root-2')
+    // the rc.1 shape keeps working (older hosts in the same peer range)
+    const legacy = harnessFromCordis({ agents: { roots: () => [agent] } } as never)
+    assert.equal(legacy.roots().length, 1)
+    assert.equal(legacy.roots()[0].id, 'root-2')
+})
+
 test('harnessFromCordis degrades safely on a partial host context', () => {
     const harness = harnessFromCordis({})
     assert.deepEqual(harness.roots(), [])

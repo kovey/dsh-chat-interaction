@@ -129,7 +129,12 @@ export function isHarnessContext(ctx: unknown): ctx is HarnessContext {
  * hosts call `apply()` from plain JS anyway.
  */
 export interface CordisContextLike {
-    agents?: { roots?: (...args: any[]) => any }
+    /**
+     * dsh-agent's agent registry. dsh 0.2.2-rc.2 renamed `roots()` to `list()`
+     * (all live agents, registration order); both shapes are accepted so the
+     * plugin keeps working across the rc.1 → rc.2 boundary.
+     */
+    agents?: { list?: (...args: any[]) => any; roots?: (...args: any[]) => any }
     tools?: { register?: (...args: any[]) => any }
     systemPrompt?: { section?: (...args: any[]) => any }
     /** cordis v4 fiber teardown. */
@@ -167,7 +172,12 @@ export function harnessFromCordis(ctx: CordisContextLike | null | undefined): Ha
     }
     return {
         roots: () => safely(() => {
-            const roots = ctx?.agents?.roots?.()
+            const agents = ctx?.agents
+            // dsh 0.2.2-rc.2: `roots()` was replaced by `list()` (all live agents
+            // in registration order — the startup agent is first). Older hosts
+            // still expose `roots()`, so both are accepted.
+            const listed = typeof agents?.list === 'function' ? agents.list() : undefined
+            const roots = Array.isArray(listed) ? listed : agents?.roots?.()
             return Array.isArray(roots) ? (roots as HarnessAgent[]) : []
         }, [] as HarnessAgent[]),
         registerTool: (tool: unknown) => {
@@ -423,7 +433,7 @@ export class DshBridge {
      * in 0.1.5-rc.1, so the retryable-code classification carries over.
      */
     createOutcomeProbe(retryableCodes: readonly string[]): {
-        probe: () => 'retryable-error' | 'settled' | null
+        probe: () => import('./retry.js').RetryObservation | null
         baseline: () => void
     } {
         let lastSeq = -1
@@ -443,11 +453,11 @@ export class DshBridge {
             const events = readEvents()
             if (events.length) lastSeq = events[events.length - 1].seq ?? 0
         }
-        const probe = (): 'retryable-error' | 'settled' | null => {
+        const probe = (): import('./retry.js').RetryObservation | null => {
             if (!established) baseline()
             const events = readEvents()
             if (events.length === 0) return null
-            let outcome: 'retryable-error' | 'settled' | null = null
+            let outcome: import('./retry.js').RetryObservation | null = null
             for (let i = events.length - 1; i >= 0; i--) {
                 const ev = events[i]
                 if (typeof ev.seq !== 'number' || ev.seq <= lastSeq) break
@@ -455,9 +465,15 @@ export class DshBridge {
                     const reason = ((ev.data as { reason?: { kind?: string; error?: { code?: string } } }) || {}).reason || {}
                     if (reason.kind === 'error') {
                         const code = (reason.error && reason.error.code) || ''
-                        outcome = retryableCodes.includes(code) ? 'retryable-error' : 'settled'
+                        // dsh 0.2.2-rc.2: LlmFailure.providerRetryAfterMs — the
+                        // provider's own wait before the next attempt (rate limits).
+                        const after = (reason.error as { providerRetryAfterMs?: unknown } | undefined)?.providerRetryAfterMs
+                        const retryAfterMs = typeof after === 'number' && Number.isFinite(after) && after > 0 ? after : undefined
+                        outcome = retryableCodes.includes(code)
+                            ? { kind: 'retryable-error', ...(retryAfterMs === undefined ? {} : { retryAfterMs }) }
+                            : { kind: 'settled' }
                     } else {
-                        outcome = 'settled'
+                        outcome = { kind: 'settled' }
                     }
                     break
                 }

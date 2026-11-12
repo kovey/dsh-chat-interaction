@@ -179,7 +179,7 @@ test('outbound sends are success evidence: they cancel pending redeliveries', as
     let redeliveries = 0
     const hub = new InteractionHub({
         ack: false,
-        retry: { baseDelayMs: 1000, pollMs: 5, maxAttempts: 3, probe: () => 'retryable-error' },
+        retry: { baseDelayMs: 1000, pollMs: 5, maxAttempts: 3, probe: () => ({ kind: 'retryable-error' }) },
         onFollowup: (msg) => {
             if ((msg as InboundMessage & { __retryRedelivery?: boolean }).__retryRedelivery) redeliveries += 1
             return true
@@ -196,7 +196,7 @@ test('outbound sends are success evidence: they cancel pending redeliveries', as
 test('retry redelivers after a retryable failure', async () => {
     const ch = new MockChannel()
     // first call = arm-time baseline fix (null), then one retryable outcome
-    const probeResults: Array<'retryable-error' | 'settled' | null> = [null, 'retryable-error']
+    const probeResults: Array<{ kind: 'retryable-error' | 'settled' } | null> = [null, { kind: 'retryable-error' }]
     let redeliveries = 0
     const hub = new InteractionHub({
         ack: false,
@@ -220,11 +220,40 @@ test('retry redelivers after a retryable failure', async () => {
     assert.equal(redeliveries, 1)
 })
 
+test('retry honors the provider-requested delay (dsh 0.2.2-rc.2 providerRetryAfterMs)', async () => {
+    const ch = new MockChannel()
+    // Our own backoff is 1ms; the provider asks for 80ms. The redelivery must
+    // wait at least ~80ms instead of firing immediately.
+    const startedAt = Date.now()
+    let redeliveredAt = 0
+    const hub = new InteractionHub({
+        ack: false,
+        retry: {
+            baseDelayMs: 1,
+            capDelayMs: 1,
+            pollMs: 5,
+            maxAttempts: 2,
+            probe: () => ({ kind: 'retryable-error', retryAfterMs: 80 }),
+        },
+        onFollowup: (msg) => {
+            if ((msg as InboundMessage & { __retryRedelivery?: boolean }).__retryRedelivery) {
+                redeliveredAt = Date.now()
+            }
+            return true
+        },
+    })
+    hub.addChannel(ch)
+    await hub.dispatch(makeMsg({ messageId: 'r4', text: '任务' }))
+    await sleep(140)
+    assert.ok(redeliveredAt > 0, 'redelivery happened')
+    assert.ok(redeliveredAt - startedAt >= 60, `waited for the provider (got ${redeliveredAt - startedAt}ms)`)
+})
+
 test('retry exhaustion notifies the user', async () => {
     const ch = new MockChannel()
     const hub = new InteractionHub({
         ack: false,
-        retry: { baseDelayMs: 5, pollMs: 5, maxAttempts: 2, probe: () => 'retryable-error' },
+        retry: { baseDelayMs: 5, pollMs: 5, maxAttempts: 2, probe: () => ({ kind: 'retryable-error' }) },
         onFollowup: () => true,
     })
     hub.addChannel(ch)
@@ -293,7 +322,7 @@ test('scoring verdict is cached: retry redelivery reuses it without re-scoring',
             scoreCalls += 1
             return { score: 0.6, level: 'medium', source: 'rule' }
         },
-        retry: { baseDelayMs: 5, pollMs: 5, maxAttempts: 3, probe: () => 'retryable-error' },
+        retry: { baseDelayMs: 5, pollMs: 5, maxAttempts: 3, probe: () => ({ kind: 'retryable-error' }) },
         onFollowup: (_msg, ctx) => {
             scores.push(ctx?.score?.level)
             return true

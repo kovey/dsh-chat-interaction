@@ -14,8 +14,19 @@
 import type { InboundMessage } from './types.js'
 import type { LogFn } from './log.js'
 
-/** Polled per round: latest-turn outcome, or null when nothing is known. */
-export type OutcomeProbe = () => 'retryable-error' | 'settled' | null
+/**
+ * Polled per round: the latest turn's outcome, or null when nothing is known.
+ * dsh 0.2.2-rc.2 exposes `LlmFailure.providerRetryAfterMs`; when the host
+ * reports it, the redelivery waits AT LEAST that long (capped by
+ * `retryAfterCapMs`) instead of only using our own exponential backoff.
+ */
+export interface RetryObservation {
+    kind: 'retryable-error' | 'settled'
+    /** Provider-requested delay before the next attempt, in milliseconds. */
+    retryAfterMs?: number
+}
+
+export type OutcomeProbe = () => RetryObservation | null
 
 export interface RetryOptions {
     /** Total attempts including the first delivery. */
@@ -28,6 +39,11 @@ export interface RetryOptions {
     pollMs?: number
     /** Error codes that count as retryable. */
     retryableCodes?: readonly string[]
+    /**
+     * Upper bound for a provider-requested delay (`providerRetryAfterMs`).
+     * A provider asking for an hour must not stall the chat for an hour.
+     */
+    retryAfterCapMs?: number
     /**
      * Inject the turn-outcome probe (harness bridge provides one). The probe
      * classifies turn endings that appeared AFTER its baseline was fixed.
@@ -56,6 +72,7 @@ const DEFAULTS: Required<Omit<RetryOptions, 'probe' | 'establishBaseline'>> = {
     capDelayMs: 10 * 60_000,
     pollMs: 5_000,
     retryableCodes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'RATE_LIMIT', 'EMPTY_RESPONSE'],
+    retryAfterCapMs: 30_000,
 }
 
 interface Cycle {
@@ -94,6 +111,19 @@ export class RetryGuard {
 
     private delayMs(failures: number): number {
         return Math.min(this.opts.baseDelayMs * Math.pow(2, failures - 1), this.opts.capDelayMs)
+    }
+
+    /**
+     * Our own backoff, raised to the provider's requested delay when there is
+     * one (dsh 0.2.2-rc.2's LlmFailure.providerRetryAfterMs). Capped so a
+     * provider asking for an hour cannot stall the conversation for an hour.
+     */
+    private delayFor(failures: number, providerRetryAfterMs?: number): number {
+        const backoff = this.delayMs(failures)
+        if (providerRetryAfterMs === undefined || !Number.isFinite(providerRetryAfterMs) || providerRetryAfterMs <= 0) {
+            return backoff
+        }
+        return Math.max(backoff, Math.min(providerRetryAfterMs, this.opts.retryAfterCapMs))
     }
 
     /**
@@ -148,11 +178,11 @@ export class RetryGuard {
                 return
             }
             const outcome = this.probe ? this.probe() : null
-            if (outcome === 'settled') {
+            if (outcome?.kind === 'settled') {
                 this.resetAll('turn settled')
                 return
             }
-            if (outcome !== 'retryable-error') return
+            if (outcome?.kind !== 'retryable-error') return
             for (const [key, e] of Array.from(this.cycles.entries())) {
                 if (e.timer) continue // a redelivery is already scheduled
                 e.failures += 1
@@ -162,7 +192,7 @@ export class RetryGuard {
                     try { this.deps.notifyExhausted(e.msg, e.failures) } catch { /* best effort */ }
                     continue
                 }
-                const delay = this.delayMs(e.failures)
+                const delay = this.delayFor(e.failures, outcome.retryAfterMs)
                 this.deps.log(
                     'warn',
                     'retry: scheduling redelivery',

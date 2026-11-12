@@ -58,11 +58,11 @@ test('retry probe classifies 0.1.5 snapshotEvents turn/end as retryable or settl
     events.push(
         { seq: 2, type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'SERVER', message: 'x' } } } }
     )
-    assert.equal(probe(), 'retryable-error')
+    assert.equal(probe()?.kind, 'retryable-error')
 
     events.push({ seq: 3, type: 'turn/start' })
     events.push({ seq: 4, type: 'turn/end', data: { reason: { kind: 'completed' } } })
-    assert.equal(probe(), 'settled')
+    assert.equal(probe()?.kind, 'settled')
 })
 
 test('retry probe works with legacy events arrays too', () => {
@@ -71,7 +71,7 @@ test('retry probe works with legacy events arrays too', () => {
     const { probe, baseline } = bridge.createOutcomeProbe(RETRYABLE)
     baseline() // empty baseline: the very first appended event IS scanned
     events.push({ seq: 1, type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'TIMEOUT' } } } })
-    assert.equal(probe(), 'retryable-error')
+    assert.equal(probe()?.kind, 'retryable-error')
 })
 
 test('retry probe: baseline is idempotent (concurrent arms cannot steal outcomes)', () => {
@@ -83,11 +83,24 @@ test('retry probe: baseline is idempotent (concurrent arms cannot steal outcomes
     baseline()
     events.push({ seq: 2, type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'SERVER' } } } })
     baseline() // second arm: MUST NOT consume the pending outcome
-    assert.equal(probe(), 'retryable-error', 'outcome survives a second baseline call')
+    assert.equal(probe()?.kind, 'retryable-error', 'outcome survives a second baseline call')
 })
 
 test('retry probe: no events yet → null (keep waiting)', () => {
     const bridge = new DshBridge(makeCtx([]))
     const { probe } = bridge.createOutcomeProbe(RETRYABLE)
     assert.equal(probe(), null)
+})
+
+test('retry probe: dsh 0.2.2-rc.2 providerRetryAfterMs is carried on the observation', () => {
+    const events: Array<{ seq: number; type: string; data?: unknown }> = []
+    const bridge = new DshBridge(makeCtx(events))
+    const { probe, baseline } = bridge.createOutcomeProbe(RETRYABLE)
+    baseline()
+    events.push({
+        seq: 1,
+        type: 'turn/end',
+        data: { reason: { kind: 'error', error: { code: 'RATE_LIMIT', providerRetryAfterMs: 1500 } } },
+    })
+    assert.deepEqual(probe(), { kind: 'retryable-error', retryAfterMs: 1500 })
 })

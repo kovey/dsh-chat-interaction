@@ -39,7 +39,7 @@ const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const upgrade = fs.readFileSync(path.join(root, 'UPGRADE.md'), 'utf8')
 
 /** 本版声明的 DSH 基线（peer 里唯一的一条 0.x 线）。 */
-const BASELINE = '0.2.2-rc.1'
+const BASELINE = '0.2.2-rc.2'
 const DSH_PEERS = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-tools']
 
 test('peer 只声明 0.2.0 线（v0.2.0 起不再支持更早的宿主）', () => {
@@ -60,7 +60,9 @@ test('devDependencies 与声明的基线一致（编译与测试跑在该基线�
 
 test('README 声明了基线版本与卸载/旧线指引', () => {
     assert.match(readme, new RegExp(`v${BASELINE.replace(/\./g, '\\.')}`), 'README 顶部必须写明依赖基线')
-    assert.match(readme, /只支持 0\.2\.0 线|唯一支持线/, 'README 必须说明本版只支持 0.2.0 线')
+    // Since v0.3.x the peer range covers the 0.2.0 / 0.2.1 / 0.2.2 lines; the old
+    // "only 0.2.0 line" claim is no longer true and must not be asserted.
+    assert.match(readme, /0\.2\.0 \/ 0\.2\.1 \/ 0\.2\.2/, 'README 必须说明 peer 覆盖的三条宿主线')
     assert.match(readme, /v0\.1\.8/, 'README 必须指向旧宿主可用的最后版本线')
 })
 

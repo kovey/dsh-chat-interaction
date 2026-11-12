@@ -74,7 +74,13 @@ export declare function isHarnessContext(ctx: unknown): ctx is HarnessContext;
  * hosts call `apply()` from plain JS anyway.
  */
 export interface CordisContextLike {
+    /**
+     * dsh-agent's agent registry. dsh 0.2.2-rc.2 renamed `roots()` to `list()`
+     * (all live agents, registration order); both shapes are accepted so the
+     * plugin keeps working across the rc.1 → rc.2 boundary.
+     */
     agents?: {
+        list?: (...args: any[]) => any;
         roots?: (...args: any[]) => any;
     };
     tools?: {
@@ -166,7 +172,7 @@ export declare class DshBridge {
      * in 0.1.5-rc.1, so the retryable-code classification carries over.
      */
     createOutcomeProbe(retryableCodes: readonly string[]): {
-        probe: () => 'retryable-error' | 'settled' | null;
+        probe: () => import('./retry.js').RetryObservation | null;
         baseline: () => void;
     };
 }

@@ -5,6 +5,25 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.7] - 2026-11-12
+
+### 适配 DSH v0.2.2-rc.2
+
+- devDependencies → **0.2.2-rc.2**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）；
+  `cordis` 仍为 **4.1.0**（无变化）
+- **破坏性变化已修**：`AgentRegistry.roots()` 被移除，改为 **`list()`**（全部 live agent，
+  按注册顺序；另有 `get(id)`）。`harnessFromCordis` 现在优先 `list()`、回退旧 `roots()`——
+  否则 rc.2 宿主上会找不到 agent、永远无法唤醒（已加回归测试）
+- `dsh-agent` 移除子会话所有权参数（`parentAgent`、`enter(agent, owner)`）—— 本插件不创建子会话，不受影响
+- `dsh-llm`：`HarnessError` 改为从 `@deepseek-ai/dsh-error` 再导出；`LlmError` 构造参数收窄为
+  `BuiltinLlmFailureCode` 并新增 `LlmError.fromFailure()`；`LlmFailure` 带 `status` / `providerRetryAfterMs`
+- **采纳 `providerRetryAfterMs`**：重投守卫在服务端要求等待时**至少等那么久**
+  （上限 `retryAfterCapMs`，默认 30s，避免限流时过早重试把配额打空）；新增 2 条测试
+- `dsh-tools`：`ToolGuard` 可返回 `ToolGuardDenial`（返回字符串仍合法）、`checkGuards` 返回对象、
+  新增 `ToolContextUnavailableError` 与 `APPROVAL_*` 错误码 —— 本插件只注册 guard（返回字符串），兼容
+- `dsh-user-approval`：仅版本与 peer 提升（无类型变化），审批契约测试照常通过
+- 测试：套件 **247/247** 通过（含 list() 回退与 providerRetryAfterMs 用例）；strict typecheck 通过
+
 ## [0.3.6] - 2026-11-10
 
 ### 变更 —— 插件状态目录统一到 `<repo>/.dsh/chat-interaction/`
@@ -444,6 +463,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.7
 [0.3.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.6
 [0.3.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.5
 [0.3.4]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.4

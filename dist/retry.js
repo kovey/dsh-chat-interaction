@@ -4,6 +4,7 @@ const DEFAULTS = {
     capDelayMs: 10 * 60_000,
     pollMs: 5_000,
     retryableCodes: ['SERVER', 'TIMEOUT', 'TRANSPORT', 'RATE_LIMIT', 'EMPTY_RESPONSE'],
+    retryAfterCapMs: 30_000,
 };
 export class RetryGuard {
     opts;
@@ -32,6 +33,18 @@ export class RetryGuard {
     }
     delayMs(failures) {
         return Math.min(this.opts.baseDelayMs * Math.pow(2, failures - 1), this.opts.capDelayMs);
+    }
+    /**
+     * Our own backoff, raised to the provider's requested delay when there is
+     * one (dsh 0.2.2-rc.2's LlmFailure.providerRetryAfterMs). Capped so a
+     * provider asking for an hour cannot stall the conversation for an hour.
+     */
+    delayFor(failures, providerRetryAfterMs) {
+        const backoff = this.delayMs(failures);
+        if (providerRetryAfterMs === undefined || !Number.isFinite(providerRetryAfterMs) || providerRetryAfterMs <= 0) {
+            return backoff;
+        }
+        return Math.max(backoff, Math.min(providerRetryAfterMs, this.opts.retryAfterCapMs));
     }
     /**
      * Arm a retry cycle for one delivered message. The outcome baseline is
@@ -89,11 +102,11 @@ export class RetryGuard {
                 return;
             }
             const outcome = this.probe ? this.probe() : null;
-            if (outcome === 'settled') {
+            if (outcome?.kind === 'settled') {
                 this.resetAll('turn settled');
                 return;
             }
-            if (outcome !== 'retryable-error')
+            if (outcome?.kind !== 'retryable-error')
                 return;
             for (const [key, e] of Array.from(this.cycles.entries())) {
                 if (e.timer)
@@ -108,7 +121,7 @@ export class RetryGuard {
                     catch { /* best effort */ }
                     continue;
                 }
-                const delay = this.delayMs(e.failures);
+                const delay = this.delayFor(e.failures, outcome.retryAfterMs);
                 this.deps.log('warn', 'retry: scheduling redelivery', e.msg.messageId || '', `failure=${e.failures}/${this.opts.maxAttempts}`, `delayMs=${delay}`);
                 e.timer = setTimeout(() => {
                     e.timer = null;

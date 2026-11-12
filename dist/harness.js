@@ -96,7 +96,12 @@ export function harnessFromCordis(ctx) {
     };
     return {
         roots: () => safely(() => {
-            const roots = ctx?.agents?.roots?.();
+            const agents = ctx?.agents;
+            // dsh 0.2.2-rc.2: `roots()` was replaced by `list()` (all live agents
+            // in registration order — the startup agent is first). Older hosts
+            // still expose `roots()`, so both are accepted.
+            const listed = typeof agents?.list === 'function' ? agents.list() : undefined;
+            const roots = Array.isArray(listed) ? listed : agents?.roots?.();
             return Array.isArray(roots) ? roots : [];
         }, []),
         registerTool: (tool) => {
@@ -389,10 +394,16 @@ export class DshBridge {
                     const reason = (ev.data || {}).reason || {};
                     if (reason.kind === 'error') {
                         const code = (reason.error && reason.error.code) || '';
-                        outcome = retryableCodes.includes(code) ? 'retryable-error' : 'settled';
+                        // dsh 0.2.2-rc.2: LlmFailure.providerRetryAfterMs — the
+                        // provider's own wait before the next attempt (rate limits).
+                        const after = reason.error?.providerRetryAfterMs;
+                        const retryAfterMs = typeof after === 'number' && Number.isFinite(after) && after > 0 ? after : undefined;
+                        outcome = retryableCodes.includes(code)
+                            ? { kind: 'retryable-error', ...(retryAfterMs === undefined ? {} : { retryAfterMs }) }
+                            : { kind: 'settled' };
                     }
                     else {
-                        outcome = 'settled';
+                        outcome = { kind: 'settled' };
                     }
                     break;
                 }
