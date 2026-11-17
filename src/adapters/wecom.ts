@@ -31,7 +31,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { randomUUID } from 'node:crypto'
 import { BaseChannel } from '../channel.js'
-import type { ButtonSpec, CardSpec, InboundMessage, ListenerStatus, SendResult } from '../types.js'
+import type { ButtonSpec, CardSpec, InboundFile, InboundMessage, ListenerStatus, SendResult } from '../types.js'
 import { log } from '../log.js'
 import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
 
@@ -616,6 +616,8 @@ export class WeComChannel extends BaseChannel {
         let text = ''
         const imagePaths: string[] = []
         const imageErrors: string[] = []
+        const files: InboundFile[] = []
+        const fileErrors: string[] = []
         if (msgType === 'text') {
             text = xml.Content || ''
         } else if (msgType === 'image') {
@@ -628,7 +630,19 @@ export class WeComChannel extends BaseChannel {
         } else if (msgType === 'voice') {
             text = '[语音消息]'
         } else if (msgType === 'file') {
-            text = '[文件消息]'
+            // Non-image attachment: download through the media API so the agent (and
+            // any other plugin observing inbound messages) gets a real local path.
+            const mediaId = xml.MediaId || ''
+            const name = xml.FileName || xml.Name || ''
+            const local = mediaId ? await this.tryDownloadImage(mediaId, '', name) : null
+            if (local) {
+                let size: number | undefined
+                try { size = fs.statSync(local).size } catch { /* unknown */ }
+                files.push({ path: local, ...(name ? { name } : {}), ...(size === undefined ? {} : { size }), kind: 'file' })
+            } else {
+                fileErrors.push(`${(name || mediaId || '?').slice(-24)}: 文件下载失败`)
+            }
+            text = name ? '[文件] ' + name : '[文件消息]'
         } else if (msgType === 'link') {
             text = `${xml.Title || '[链接]'} ${xml.Description || ''}`.trim()
         } else if (msgType === 'location') {
@@ -659,6 +673,8 @@ export class WeComChannel extends BaseChannel {
             isBotMentioned: false, // WeCom app callbacks do not expose mentions
             imagePaths,
             imageErrors,
+            ...(files.length ? { files } : {}),
+            ...(fileErrors.length ? { fileErrors } : {}),
             timestamp: xml.CreateTime || '',
             raw: xml,
         }
@@ -667,7 +683,7 @@ export class WeComChannel extends BaseChannel {
     }
 
     /** Best effort: PicUrl direct fetch first, then the media API. */
-    private async tryDownloadImage(mediaId: string, picUrl: string): Promise<string | null> {
+    private async tryDownloadImage(mediaId: string, picUrl: string, filename?: string): Promise<string | null> {
         const dir = this.mediaDir()
         if (!dir) return null
         try {
@@ -676,7 +692,9 @@ export class WeComChannel extends BaseChannel {
         } catch {
             return null
         }
-        const target = path.join(dir, `${Date.now()}-${mediaId.slice(-12) || 'img'}.img`)
+        const ext = (filename ? path.extname(filename) : '') || '.img'
+        const base = (filename ? filename.replace(/[^A-Za-z0-9._-]/g, '_') : '') || mediaId.slice(-12) || 'img'
+        const target = path.join(dir, `${Date.now()}-${base}${base.endsWith(ext) ? '' : ext}`)
         const f = this.cfg.fetchImpl || fetch
         const attempt = async (url: string): Promise<Buffer> => {
             const r = await f(url, { signal: AbortSignal.timeout(this.cfg.timeoutMs) })

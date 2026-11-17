@@ -214,6 +214,25 @@ sub.dispose()
 
 观察者**不能消费**消息（消息仍会走正常路由/唤醒），抛错会被记录而不影响管线。
 
+**附件契约（图片与文件）**：观察者拿到的是与 agent 相同的 `InboundMessage`，附件已经落地成本地文件：
+
+| 字段 | 含义 |
+|---|---|
+| `imagePaths?: string[]` | 已下载图片的**本地绝对路径**（用 `read_image` 读） |
+| `imageErrors?: string[]` | 单张图片下载失败的原因（消息仍会投递） |
+| `files?: InboundFile[]` | 非图片附件（PDF / 文档 / 压缩包 / 语音…），每项 `{ path, name?, mime?, size?, kind? }` |
+| `fileErrors?: string[]` | 文件下载失败原因；失败**不会**让消息丢失 |
+
+```ts
+const sub = chat.onInbound((msg) => {
+    for (const p of msg.imagePaths ?? []) console.log('图片', p)
+    for (const f of msg.files ?? []) console.log('文件', f.name, f.path, f.size)
+})
+```
+
+> 路径都指向 `<项目>/.dsh/chat-interaction/<channel>-media/`（保留期见 `mediaRetentionDays`）。
+> 同一份路径也会出现在 agent 的提示词里（`图片文件:` / `文件:` 行），所以两个消费方看到的是**同一批文件**。
+
 ## 错误码
 
 | code | 含义 | 常见处理 |

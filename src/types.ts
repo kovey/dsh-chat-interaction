@@ -55,10 +55,32 @@ export interface InboundMessage {
     imagePaths?: string[]
     /** Download failures, one entry per failed image. */
     imageErrors?: string[]
+    /**
+     * Non-image attachments downloaded to local files (PDF, doc, zip, voice…).
+     * Every consumer (the agent AND `api.onInbound` observers) gets the same
+     * absolute paths — a file that never landed cannot be handed to anyone.
+     */
+    files?: InboundFile[]
+    /** Download failures, one entry per failed file. */
+    fileErrors?: string[]
     /** Original create timestamp as reported by the platform. */
     timestamp?: string
     /** Raw normalized platform payload, for routers that need more. */
     raw?: unknown
+}
+
+/** One inbound attachment already written to disk. */
+export interface InboundFile {
+    /** Local absolute path (same shape as `imagePaths` entries). */
+    path: string
+    /** Original file name reported by the platform, when available. */
+    name?: string
+    /** MIME type, when the platform reported one. */
+    mime?: string
+    /** Size in bytes. */
+    size?: number
+    /** Platform message kind that carried it (`file`, `voice`, `video`, …). */
+    kind?: string
 }
 
 /** One button of an interactive card. */

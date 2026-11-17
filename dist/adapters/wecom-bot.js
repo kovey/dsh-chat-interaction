@@ -262,6 +262,26 @@ export class WeComBotChannel extends BaseChannel {
                     imageErrors.push(`${url.slice(-12)}: 图片下载/解密失败`);
             }
         }
+        // Non-image attachment (file): download via the client so consumers get a path.
+        const files = [];
+        const fileErrors = [];
+        if (msgType === 'file' && body.file?.url) {
+            const url = String(body.file.url);
+            const aesKey = body.file.aeskey ? String(body.file.aeskey) : undefined;
+            const name = String(body.file.filename || body.file.file_name || '');
+            const local = await this.downloadAttachment(url, aesKey, name);
+            if (local) {
+                let size;
+                try {
+                    size = fs.statSync(local).size;
+                }
+                catch { /* unknown */ }
+                files.push({ path: local, ...(name ? { name } : {}), ...(size === undefined ? {} : { size }), kind: 'file' });
+            }
+            else {
+                fileErrors.push(`${url.slice(-12)}: 文件下载/解密失败`);
+            }
+        }
         const text = this.textOf(msgType, body);
         return {
             channel: this.name,
@@ -275,6 +295,8 @@ export class WeComBotChannel extends BaseChannel {
             isBotMentioned: false, // the smart bot is addressed directly
             imagePaths,
             imageErrors,
+            ...(files.length ? { files } : {}),
+            ...(fileErrors.length ? { fileErrors } : {}),
             timestamp: body.create_time ? String(body.create_time) : '',
             raw: frame,
         };
@@ -325,6 +347,29 @@ export class WeComBotChannel extends BaseChannel {
         };
     }
     /** Download + decrypt (AES per message) an inbound image via the SDK. */
+    async downloadAttachment(url, aesKey, filename) {
+        const client = this.client;
+        if (!client || typeof client.downloadFile !== 'function')
+            return null;
+        const dir = this.mediaDir();
+        try {
+            fs.mkdirSync(dir, { recursive: true });
+            pruneOldFiles(dir, (this.cfg.mediaRetentionDays ?? 7) * 24 * 60 * 60 * 1000);
+            const { buffer, filename: reported } = await client.downloadFile(url, aesKey);
+            if (!buffer || buffer.length === 0)
+                return null;
+            const name = filename || reported || '';
+            const ext = name && path.extname(name) ? path.extname(name) : '.bin';
+            const safe = name ? name.replace(/[^A-Za-z0-9._-]/g, '_') : '';
+            const file = path.join(dir, safe ? safe : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+            fs.writeFileSync(file, buffer);
+            return file;
+        }
+        catch (e) {
+            log('warn', 'wecom smart-bot file download failed:', e.message);
+            return null;
+        }
+    }
     async downloadImage(url, aesKey) {
         const client = this.client;
         if (!client || typeof client.downloadFile !== 'function')

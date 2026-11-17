@@ -77,6 +77,19 @@ export declare function extractImageRefs(msgType: string, rawContent: string): A
     type: string;
     name: string;
 }>;
+/** One non-image attachment carried by an inbound Feishu message. */
+export interface FeishuFileRef {
+    key: string;
+    name: string;
+    mime?: string;
+}
+/**
+ * Extract the NON-image attachments of a message (`file`, or `media` whose MIME
+ * type is not an image). Images are handled by {@link extractImageRefs}; before
+ * this existed a `file` message was handed to the agent as raw JSON and no
+ * consumer ever saw a local path.
+ */
+export declare function extractFileRefs(msgType: string, rawContent: string): FeishuFileRef[];
 /** Rebuild a clicked card: original header + body, button row replaced by the choice. */
 export declare function buildUpdatedCard(cardStoreDir: string, messageId: string, choice: string): unknown | null;
 /** Resolve Feishu credentials: config → explicit file → project → home → env. */

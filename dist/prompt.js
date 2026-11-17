@@ -7,6 +7,7 @@ const CORE_LINES = (d) => [
     `- ${d.name}_wait_reply(chat_id, timeoutMs) blocks until the user's next message in that chat (consumed by the call; no extra turn) — use it for strict Q&A sequencing.`,
     `- ${d.name}_auth_state() reports permission mode / allowlist / pending questions.`,
     `- A message that carries images includes 图片文件: <本地绝对路径> — read them with the read_image tool (dsh native multimodal); answer from what you actually see in the image, not from guesses.`,
+    `- A message that carries files includes 文件: <本地绝对路径> (and 文件名 when known) — read them with the read tool; the same paths are handed to other plugins that observe inbound messages.`,
     `- Simple commands (git status, 最近提交, 文件列表…), confirmation answers, and casual chat (unrecognized messages are answered by the plugin's LLM directly) are handled by the plugin itself; requirement / bugfix tasks reach you and follow their existing skills. If a chat message reaches you because the plugin's model was unavailable, answer it conversationally in ${d.label}. ${d.label} is the remote surface, not a new process.`,
 ];
 /** Task-session policy lines (task-active markers + closing commit cards). */
@@ -48,6 +49,14 @@ export function formatInbound(desc, msg, note, score) {
         lines.push(`图片文件: ${msg.imagePaths.join(' ')}`);
     if (msg.imageErrors && msg.imageErrors.length)
         lines.push(`图片下载失败: ${msg.imageErrors.join('; ')}`);
+    if (msg.files && msg.files.length) {
+        lines.push(`文件: ${msg.files.map((f) => f.path).join(' ')}`);
+        const names = msg.files.map((f) => f.name).filter((n) => typeof n === 'string' && n !== '');
+        if (names.length)
+            lines.push(`文件名: ${names.join(' | ')}`);
+    }
+    if (msg.fileErrors && msg.fileErrors.length)
+        lines.push(`文件下载失败: ${msg.fileErrors.join('; ')}`);
     if (msg.isBotMentioned)
         lines.push('注意: 群聊中 @提及了本机器人');
     lines.push(`内容: ${msg.text}`);

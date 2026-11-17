@@ -548,6 +548,8 @@ export class WeComChannel extends BaseChannel {
         let text = '';
         const imagePaths = [];
         const imageErrors = [];
+        const files = [];
+        const fileErrors = [];
         if (msgType === 'text') {
             text = xml.Content || '';
         }
@@ -565,7 +567,23 @@ export class WeComChannel extends BaseChannel {
             text = '[语音消息]';
         }
         else if (msgType === 'file') {
-            text = '[文件消息]';
+            // Non-image attachment: download through the media API so the agent (and
+            // any other plugin observing inbound messages) gets a real local path.
+            const mediaId = xml.MediaId || '';
+            const name = xml.FileName || xml.Name || '';
+            const local = mediaId ? await this.tryDownloadImage(mediaId, '', name) : null;
+            if (local) {
+                let size;
+                try {
+                    size = fs.statSync(local).size;
+                }
+                catch { /* unknown */ }
+                files.push({ path: local, ...(name ? { name } : {}), ...(size === undefined ? {} : { size }), kind: 'file' });
+            }
+            else {
+                fileErrors.push(`${(name || mediaId || '?').slice(-24)}: 文件下载失败`);
+            }
+            text = name ? '[文件] ' + name : '[文件消息]';
         }
         else if (msgType === 'link') {
             text = `${xml.Title || '[链接]'} ${xml.Description || ''}`.trim();
@@ -600,6 +618,8 @@ export class WeComChannel extends BaseChannel {
             isBotMentioned: false, // WeCom app callbacks do not expose mentions
             imagePaths,
             imageErrors,
+            ...(files.length ? { files } : {}),
+            ...(fileErrors.length ? { fileErrors } : {}),
             timestamp: xml.CreateTime || '',
             raw: xml,
         };
@@ -607,7 +627,7 @@ export class WeComChannel extends BaseChannel {
         return msg;
     }
     /** Best effort: PicUrl direct fetch first, then the media API. */
-    async tryDownloadImage(mediaId, picUrl) {
+    async tryDownloadImage(mediaId, picUrl, filename) {
         const dir = this.mediaDir();
         if (!dir)
             return null;
@@ -618,7 +638,9 @@ export class WeComChannel extends BaseChannel {
         catch {
             return null;
         }
-        const target = path.join(dir, `${Date.now()}-${mediaId.slice(-12) || 'img'}.img`);
+        const ext = (filename ? path.extname(filename) : '') || '.img';
+        const base = (filename ? filename.replace(/[^A-Za-z0-9._-]/g, '_') : '') || mediaId.slice(-12) || 'img';
+        const target = path.join(dir, `${Date.now()}-${base}${base.endsWith(ext) ? '' : ext}`);
         const f = this.cfg.fetchImpl || fetch;
         const attempt = async (url) => {
             const r = await f(url, { signal: AbortSignal.timeout(this.cfg.timeoutMs) });

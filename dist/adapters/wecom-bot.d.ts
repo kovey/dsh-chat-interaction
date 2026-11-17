@@ -88,6 +88,7 @@ export declare class WeComBotChannel extends BaseChannel {
     private textOf;
     private normalizeCardEvent;
     /** Download + decrypt (AES per message) an inbound image via the SDK. */
+    private downloadAttachment;
     private downloadImage;
     private requireClient;
     private send;

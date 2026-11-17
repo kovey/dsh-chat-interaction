@@ -5,6 +5,25 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [0.3.8] - 2026-11-17
+
+### 修复 —— 入站文件附件从未落地（其他插件收不到）
+
+- **问题**：图片会下载进 `imagePaths` 并随消息交给 `onInbound` 观察者与 agent 提示词，但
+  **非图片附件（PDF/文档/压缩包/语音）从未下载**，`InboundMessage` 也没有文件字段：
+  飞书 `file` 消息只产出原始 JSON 文本、企业微信只产出 `[文件消息]`，消费方拿不到任何本地路径。
+- **修复**：
+  - `InboundMessage` 新增 **`files`**（`InboundFile { path, name?, mime?, size?, kind? }`）与
+    **`fileErrors`**；`imagePaths` 语义不变
+  - **飞书**：`file` 与 `media`（非图片 MIME）下载到项目 media 目录并填入 `files`；
+    `file` 消息的文本改为 `[文件] <文件名>`（不再是原始 JSON）
+  - **企业微信（app 回调）**：`file` 消息通过 media API 下载并填入 `files`
+  - **企业微信（bot 回调）**：`file` 消息通过 `downloadFile()` 下载并填入 `files`
+  - 下载失败只记录 `fileErrors`，消息照常投递（不阻断）
+  - 提示词新增 `文件: <本地路径>` 与 `文件名:` 行；API.md 写明 `onInbound` 的附件契约
+- 测试：新增 6 项（飞书 file 落地/失败降级、企业微信 file 落地、`extractFileRefs`、
+  `onInbound` 透传同一对象、提示词文件行）→ 套件 247 → 253
+
 ## [0.3.7] - 2026-11-12
 
 ### 适配 DSH v0.2.2-rc.2
@@ -463,6 +482,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.8
 [0.3.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.7
 [0.3.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.6
 [0.3.5]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.5

@@ -19,7 +19,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { BaseChannel } from '../channel.js'
-import type { ButtonSpec, CardSpec, InboundMessage, ListenerStatus, SendResult } from '../types.js'
+import type { ButtonSpec, CardSpec, InboundFile, InboundMessage, ListenerStatus, SendResult } from '../types.js'
 import { log, sdkLogger } from '../log.js'
 import { chatStateDir, dshHome, expandHome, projStateDir, pruneOldFiles } from '../state.js'
 
@@ -113,6 +113,12 @@ export function parseContent(msgType: string, rawContent: string): string {
             }
             return lines.join(' ')
         }
+        if (msgType === 'file') {
+            // A file message must read as its name, not as raw JSON: the agent
+            // gets the local path separately (see InboundMessage.files).
+            const name = String(parsed.file_name || '').trim()
+            return name ? '[文件] ' + name : '[文件]'
+        }
         return rawContent
     } catch {
         return rawContent
@@ -155,6 +161,40 @@ export function extractImageRefs(msgType: string, rawContent: string): Array<{ k
     return refs.filter((r) => r.key)
 }
 
+/** One non-image attachment carried by an inbound Feishu message. */
+export interface FeishuFileRef {
+    key: string
+    name: string
+    mime?: string
+}
+
+/**
+ * Extract the NON-image attachments of a message (`file`, or `media` whose MIME
+ * type is not an image). Images are handled by {@link extractImageRefs}; before
+ * this existed a `file` message was handed to the agent as raw JSON and no
+ * consumer ever saw a local path.
+ */
+export function extractFileRefs(msgType: string, rawContent: string): FeishuFileRef[] {
+    const refs: FeishuFileRef[] = []
+    try {
+        const parsed = JSON.parse(rawContent || '{}') as Record<string, unknown>
+        const key = parsed.file_key ? String(parsed.file_key) : ''
+        if (msgType === 'file' && key) {
+            refs.push({
+                key,
+                name: String(parsed.file_name || ''),
+                ...(typeof parsed.file_type === 'string' ? { mime: parsed.file_type } : {}),
+            })
+        } else if (msgType === 'media' && key) {
+            const mime = typeof parsed.mime_type === 'string' ? parsed.mime_type : ''
+            if (!mime.startsWith('image/')) {
+                refs.push({ key, name: String(parsed.file_name || ''), ...(mime ? { mime } : {}) })
+            }
+        }
+    } catch { /* malformed content */ }
+    return refs
+}
+
 /** Magic-number sniffing → extension (with dot); '' when unknown. */
 function sniffExt(buf: Buffer): string {
     if (!buf || buf.length < 12) return ''
@@ -171,7 +211,8 @@ async function downloadImage(
     ref: { key: string; type: string },
     mediaDir: string,
     index: number,
-    timeoutMs: number
+    timeoutMs: number,
+    preferredName?: string
 ): Promise<string> {
     const url = '/open-apis/im/v1/messages/' + encodeURIComponent(messageId) + '/resources/' + encodeURIComponent(ref.key)
     const resp = (await apiClient.request!({
@@ -193,8 +234,11 @@ async function downloadImage(
         } catch { /* keep default */ }
         throw new Error(reason)
     }
-    const ext = sniffExt(buf) || '.img'
-    const file = path.join(mediaDir, messageId + '-' + index + ext)
+    // Prefer the platform-reported name's extension (files), then sniff the bytes.
+    const ext = (preferredName ? path.extname(preferredName) : '') || sniffExt(buf) || '.img'
+    const safe = preferredName ? preferredName.replace(/[^A-Za-z0-9._-]/g, '_') : ''
+    const base = safe ? index + '-' + safe : messageId + '-' + index
+    const file = path.join(mediaDir, base.endsWith(ext) ? base : base + ext)
     fs.writeFileSync(file, buf)
     return file
 }
@@ -585,6 +629,52 @@ export class FeishuChannel extends BaseChannel {
             }
         }
 
+        // File landing: non-image attachments (PDF/doc/zip/voice...) are downloaded
+        // next to images. Without this a `file` message only produced raw JSON text
+        // and NO consumer (agent or another plugin) ever saw a local path.
+        const files: InboundFile[] = []
+        const fileErrors: string[] = []
+        const fileRefs = extractFileRefs(msgType, rawContent)
+        if (fileRefs.length && this.apiClient && typeof this.apiClient.request === 'function' && msg.message_id) {
+            const mediaDir = this.mediaDir(process.cwd())
+            if (mediaDir) {
+                try {
+                    fs.mkdirSync(mediaDir, { recursive: true })
+                    pruneOldFiles(mediaDir, this.cfg.mediaRetentionDays * 24 * 60 * 60 * 1000)
+                    let i = 0
+                    for (const ref of fileRefs) {
+                        try {
+                            const p = await downloadImage(
+                                this.apiClient,
+                                String(msg.message_id),
+                                { key: ref.key, type: 'file' },
+                                mediaDir,
+                                i,
+                                this.cfg.timeoutMs,
+                                ref.name
+                            )
+                            i += 1
+                            let size: number | undefined
+                            try { size = fs.statSync(p).size } catch { /* unknown */ }
+                            files.push({
+                                path: p,
+                                ...(ref.name ? { name: ref.name } : {}),
+                                ...(ref.mime ? { mime: ref.mime } : {}),
+                                ...(size === undefined ? {} : { size }),
+                                kind: msgType,
+                            })
+                        } catch (e) {
+                            const err = e as Error
+                            log('warn', 'file download failed:', ref.key, err.message)
+                            fileErrors.push((ref.name || ref.key || '?').slice(-24) + ': ' + err.message)
+                        }
+                    }
+                } catch (e) {
+                    log('error', 'file media dir setup failed:', (e as Error).message)
+                }
+            }
+        }
+
         return {
             channel: this.name,
             chatId: String(msg.chat_id || ''),
@@ -600,6 +690,8 @@ export class FeishuChannel extends BaseChannel {
             isBotMentioned: botMentioned,
             imagePaths,
             imageErrors,
+            ...(files.length ? { files } : {}),
+            ...(fileErrors.length ? { fileErrors } : {}),
             timestamp: String(msg.create_time || ''),
             raw: data,
         }
