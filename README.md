@@ -4,10 +4,11 @@
 
 > 变更历史见 [CHANGELOG.md](CHANGELOG.md)；升级步骤与宿主注意事项见 [UPGRADE.md](UPGRADE.md)。
 >
-> **依赖基线：DSH v0.2.2-rc.2**（npm `latest` 与 `next` 均已指向它）。
-> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.2.2-rc.2`
+> **依赖基线：DSH v0.2.2-rc.4**（npm dist-tag `next` 指向它；`latest` 仍停在更早的 0.0.x/0.1.x 线，
+> 别用 `latest` 判断这条线的最新版）。
+> devDependencies 精确锁定 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools,dsh-user-approval}@0.2.2-rc.4`
 > + `cordis@4.1.0`；peerDependencies 声明 **`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-rc.1`** —— 覆盖
-> 0.2.0 / 0.2.1 / 0.2.2 三条线（0.2.1-rc.2 与 **0.2.2-rc.2** 均已核实）。需要 0.1.x 宿主请用 v0.1.8 及更早版本。
+> 0.2.0 / 0.2.1 / 0.2.2 三条线（0.2.1-rc.2 与 **0.2.2-rc.2 / rc.3 / rc.4** 均已核实）。需要 0.1.x 宿主请用 v0.1.8 及更早版本。
 
 ```
 ┌─────────────────────────────┐          ┌──────────────────────────────────┐
@@ -37,7 +38,7 @@
 
 ### 1. 安装（挂进 DSH）
 
-前置：Node ≥ 18、pnpm、DSH 宿主 **v0.1.7-rc.1**（或 0.1.5-rc.x，两条线都支持）；飞书/企业微信应用凭证（按需）。
+前置：Node ≥ 18、pnpm、DSH 宿主 **≥ 0.2.0-rc.1**（0.2.0 / 0.2.1 / 0.2.2 三条 rc 线，基线 0.2.2-rc.4）；飞书/企业微信应用凭证（按需）。
 
 **依赖对齐**：本包 `peerDependencies` 是 `@deepseek-ai/{dsh-agent,dsh-llm,dsh-tools}@^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-rc.1`
 + `cordis@^4.0.2` —— 覆盖 0.2.0-rc.x、0.2.1-rc.x 与稳定版 0.2.x（不覆盖 0.3.x）；宿主装哪个都满足，
@@ -569,9 +570,9 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 
 ## DSH 版本兼容性
 
-### 支持基线：DSH 0.2.x 线（0.2.0-rc.x、0.2.1-rc.x、0.2.2-rc.1 / rc.2 均已核实）
+### 支持基线：DSH 0.2.x 线（0.2.0-rc.x、0.2.1-rc.x、0.2.2-rc.1 / rc.2 / rc.3 / rc.4 均已核实）
 
-**破坏性说明**：v0.2.0 起，本插件只声明 `^0.2.0-rc.1 || ^0.2.0-rc.2` —— 在 0.1.5-rc.x / 0.1.7-rc.x 宿主上
+**破坏性说明**：v0.2.0 起，本插件只声明 `^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-rc.1` —— 在 0.1.5-rc.x / 0.1.7-rc.x 宿主上
 会因 peer 不满足而被插件版本闸门拒绝（`incompatible-version`）。需要旧宿主请继续用 **v0.1.8**。
 
 **逐项核实结论**（对照 0.1.7-rc.2 与 0.2.0-rc.1 的包内类型定义 + 真机启动）：
@@ -616,6 +617,26 @@ headless profile 的 `channels.<渠道>.role` 设为 `listener`（启动即连�
 - `dsh-tools`：`ToolGuard` 可返回 `ToolGuardDenial`（字符串仍合法）、`checkGuards` 返回对象、
   新增 `ToolContextUnavailableError` 与 `APPROVAL_*` 错误码 —— 本插件只注册 guard（返回字符串），兼容
 - `dsh-user-approval`：仅版本与 peer 提升（无类型变化），审批契约测试照常通过
+
+**0.2.2-rc.2 → 0.2.2-rc.4（已核实；经 rc.3，逐包解包 tarball 对比）**：
+
+- 四个包 `package.json` 的差异**只有版本号自增**（自身版本 + 内部 DSH peer/devDeps 全部跟到 rc.4）：
+  非 DSH 依赖**零变化**，`cordis` 仍为 **4.1.0**（registry 上 4.1.0 已是最新，无需升级）
+- **顶层导出零增删**（四个包 `lib/types/index.d.ts` 的 `export`/`declare` 行逐行一致）；
+  除 `dsh-llm` 的 `error` 模块外，**其余 `.d.ts` 逐文件字节一致**（rc.2 / rc.3 / rc.4 逐包 sha256 比对，忽略 `.map`）
+- **唯一功能变化**：`dsh-llm` 新增错误码 **`LLM_FAILURE_CODES.CONTENT_REFUSED`**（内容被拒）。
+  它没有 `retryChoice` 标记（不在 `RETRY_CODE_CHOICES` 中），本插件的默认重试集
+  （`SERVER` / `TIMEOUT` / `TRANSPORT` / `RATE_LIMIT` / `EMPTY_RESPONSE`）不含它；插件也从不枚举
+  code（按宿主配置的 `error.code` 字符串分类）—— 故 **不接入、零源码改动**。
+  若手动把 `CONTENT_REFUSED` 写进 `retryableCodes`，只会白白重试一个不会自愈的内容拒绝，不建议
+- 本插件真正使用的 API 面在 rc.3 / rc.4 上**零变化**：`ctx.agents` 的 `list()` / `get()` / `register()` /
+  `enter()` / `announce()`、`installModelSelection()`、`agent.model.current()` / `select()`、`ctx.waterfall`、
+  `ctx.tools.register()`、`defineTool()`、`validateJsonSchemaValue()`、`createUserMessage()`、
+  `readSessionEvents` 相关的会话事件类型，以及 `ctx.approval` 的 `approval/request` 契约（`ApprovalOutcome`）
+  —— 这些符号所在的 `.d.ts` 文件在 rc.2 → rc.4 之间**逐字节未变**
+- 实测：**254/254 测试通过**（`pnpm test`，含 dist 构建 + src/test 两套 strict typecheck；
+  其中新增 1 条「peer 范围在语义上覆盖基线」守卫）；rc.4 上**未改任何源码**，
+  只更新依赖、基线守卫与文档
 
 **0.2.0-rc.2 → 0.2.1-rc.2（已核实）**：cordis 4.0.4 → **4.0.5**（导出零增删）；依赖树新增 10 个包、
 移除 6 个（`dsh-hooks-claude-code` / `dsh-hooks-codex` / `dsh-webhook` / `dsh-webhook-github` /

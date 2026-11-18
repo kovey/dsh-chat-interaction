@@ -5,6 +5,26 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [未发布]
+
+### 适配 DSH v0.2.2-rc.4（经 rc.3，逐包解包对比核实）
+
+- devDependencies → **0.2.2-rc.4**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）；
+  `cordis` 仍为 **4.1.0**（registry 上已是最新，无变化）
+- peer 范围**无需改动**：`^0.2.0-rc.1 || ^0.2.1-rc.1 || ^0.2.2-rc.1` 已覆盖 0.2.2-rc.2/rc.3/rc.4
+  （同 patch 的预发布版判为满足）；新增守卫测试按 semver 规则锁死这一点（并断言 0.1.x 不被覆盖）
+- 逐包核实（rc.2 → rc.3 → rc.4）：四个包**顶层导出零增删**；`package.json` 差异**只有版本号自增**
+  （非 DSH 依赖零变化）；除 `dsh-llm` 的 `error` 模块外**所有 `.d.ts` 逐字节一致**
+- **唯一功能变化**：`dsh-llm` 新增错误码 `LLM_FAILURE_CODES.CONTENT_REFUSED`（内容被拒，无 `retryChoice`）。
+  本插件按宿主配置的 `error.code` 分类、不枚举 code，默认重试集不含它 —— **不接入**
+- **零源码改动**：rc.4 上 `pnpm test` **254/254** 通过（含新增的 1 条 peer 范围守卫）、
+  dist 与 src/test 两条 strict typecheck 通过
+- 文档：README 顶部基线、「DSH 版本兼容性」逐版本核实行、UPGRADE 前置条件与版本矩阵同步到 rc.4
+- 构建注记：pnpm 12 默认的供应链策略（`minimumReleaseAge` = 24h）会拒绝锁文件里"过新"的包。
+  rc.4 发布（2026-11-17T16:39Z）后 24h 内 `pnpm install --frozen-lockfile` 会被策略拒绝；
+  本次用非 frozen 安装完成，并自动生成**未跟踪**的 `pnpm-workspace.yaml`（其中 `minimumReleaseAgeExclude`
+  只豁免这 14 个 rc.4 包）。**该文件是否保留/提交由人决定**，本段不把它视为已交付内容
+
 ## [0.3.8] - 2026-11-17
 
 ### 修复 —— 入站文件附件从未落地（其他插件收不到）

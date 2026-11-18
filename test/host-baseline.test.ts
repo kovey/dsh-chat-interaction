@@ -38,9 +38,69 @@ const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8')
 const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
 const upgrade = fs.readFileSync(path.join(root, 'UPGRADE.md'), 'utf8')
 
-/** 本版声明的 DSH 基线（peer 里唯一的一条 0.x 线）。 */
-const BASELINE = '0.2.2-rc.2'
+/** 本版声明的 DSH 基线（devDependencies 精确锁定它，编译与测试都跑在它上面）。 */
+const BASELINE = '0.2.2-rc.4'
 const DSH_PEERS = ['@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-tools']
+
+/* ------------------------------------------------------------------ *
+ * 极简 semver：只回答"这条 caret 范围是否包含这个版本"。
+ *
+ * 不引 semver 包：本仓库没有该依赖，为一条守卫测试加依赖不划算。
+ * 与 npm 的判定对齐（已用 `npm view "<pkg>@<range>" version` 交叉验证）：
+ *  - 稳定版落在 [下界, 下一个 minor) 内即满足；
+ *  - **预发布版**还必须有一个**同 [major,minor,patch]** 且自身带预发布号的比较子，
+ *    否则不算满足（semver spec #11：`^0.2.1-rc.1` 不含 `0.2.2-rc.4`）。
+ * ------------------------------------------------------------------ */
+
+type Semver = { major: number; minor: number; patch: number; pre: (string | number)[] }
+
+function parseSemver(text: string): Semver {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(text.trim())
+    if (!m) throw new Error(`不是合法版本号：${text}`)
+    const pre = m[4] ? m[4].split('.').map((id) => (/^\d+$/.test(id) ? Number(id) : id)) : []
+    return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), pre }
+}
+
+function compareIdentifiers(a: string | number, b: string | number): number {
+    if (typeof a === 'number' && typeof b === 'number') return a - b
+    if (typeof a === 'number') return -1 // 数字标识符 < 字母标识符
+    if (typeof b === 'number') return 1
+    return a < b ? -1 : a > b ? 1 : 0
+}
+
+function compareVersions(a: Semver, b: Semver): number {
+    const core = a.major - b.major || a.minor - b.minor || a.patch - b.patch
+    if (core !== 0) return core
+    if (a.pre.length === 0 && b.pre.length === 0) return 0
+    if (a.pre.length === 0) return 1 // 同版本号：稳定版 > 预发布
+    if (b.pre.length === 0) return -1
+    for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i++) {
+        const left = a.pre[i]
+        const right = b.pre[i]
+        if (left === undefined) return -1 // 前缀相同则短的更小（1.0.0-rc < 1.0.0-rc.1）
+        if (right === undefined) return 1
+        const cmp = compareIdentifiers(left, right)
+        if (cmp !== 0) return cmp
+    }
+    return 0
+}
+
+function satisfiesCaret(version: string, range: string): boolean {
+    const comparator = range.trim()
+    if (!comparator.startsWith('^')) throw new Error(`本守卫只覆盖 caret 范围：${comparator}`)
+    const lower = parseSemver(comparator.slice(1))
+    const upper = lower.major === 0
+        ? parseSemver(`0.${lower.minor + 1}.0-0`) // 0.x 的 caret 只放开 patch
+        : parseSemver(`${lower.major + 1}.0.0-0`)
+    const candidate = parseSemver(version)
+    if (compareVersions(candidate, lower) < 0) return false
+    if (compareVersions(candidate, upper) >= 0) return false
+    if (candidate.pre.length > 0) {
+        const sameTuple = lower.major === candidate.major && lower.minor === candidate.minor && lower.patch === candidate.patch
+        if (!(lower.pre.length > 0 && sameTuple)) return false
+    }
+    return true
+}
 
 test('peer 只声明 0.2.0 线（v0.2.0 起不再支持更早的宿主）', () => {
     for (const name of DSH_PEERS) {
@@ -50,6 +110,24 @@ test('peer 只声明 0.2.0 线（v0.2.0 起不再支持更早的宿主）', () =
     assert.doesNotMatch(joined, /0\.1\.\d/, '不得再声明 0.1.x 线（本版明确不支持）')
     assert.equal(pkg.peerDependencies['@deepseek-ai/cordis'], '^4.0.2')
     assert.equal(pkg.devDependencies['@deepseek-ai/cordis'], '4.1.0')
+})
+
+test('peer 范围在语义上覆盖基线版本，且不覆盖已放弃的宿主线', () => {
+    const range = pkg.peerDependencies['@deepseek-ai/dsh-agent']!
+    const satisfies = (version: string): boolean => range.split('||').some((part) => satisfiesCaret(version, part))
+
+    // 基线本身必须被自己声明的 peer 范围覆盖 —— 否则宿主装得进去、插件却被版本闸门拒绝。
+    assert.ok(satisfies(BASELINE), `peer 范围 ${range} 必须覆盖基线 ${BASELINE}`)
+
+    for (const version of ['0.2.0-rc.1', '0.2.0-rc.2', '0.2.1-rc.1', '0.2.1-rc.5', '0.2.2-rc.1', '0.2.2-rc.2', '0.2.2-rc.3', '0.2.2']) {
+        assert.ok(satisfies(version), `peer 范围必须覆盖 ${version}`)
+    }
+    for (const version of ['0.1.5-rc.1', '0.1.7-rc.2', '0.1.8', '0.2.3-rc.1', '0.3.0-rc.1']) {
+        assert.ok(!satisfies(version), `peer 范围不得覆盖 ${version}（0.1.x 已放弃；0.2.3/0.3.x 尚未核实）`)
+    }
+
+    // 预发布规则本身的回归：`^0.2.1-rc.1` 按 semver 不含 `0.2.2-rc.4`（跨 patch）。
+    assert.ok(!satisfiesCaret('0.2.2-rc.4', '^0.2.1-rc.1'), 'semver #11：跨 patch 的预发布版不满足 caret 范围')
 })
 
 test('devDependencies 与声明的基线一致（编译与测试跑在该基线上）', () => {
