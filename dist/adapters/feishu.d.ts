@@ -74,6 +74,9 @@ export declare function parseContent(msgType: string, rawContent: string): strin
  * empty string for a failed download. An image without a usable path keeps only
  * its `imageKey` — no local path is ever invented.
  *
+ * Every produced span carries the original platform segment on `raw` (a shallow
+ * snapshot taken by `segSnapshot()`); the normalized fields stay authoritative.
+ *
  * Never throws: malformed JSON / a non-object payload yields `undefined`; a
  * payload whose `content` is not an array yields `undefined` or a title-only
  * result when it still has a title.

@@ -241,7 +241,8 @@ const sub = chat.onInbound((msg) => {
 | `rich.title?: string` | 富文本标题（飞书 post 的 `title`） |
 | `rich.blocks: RichSpan[][]` | 按**原段落**分组的 span 列表，顺序与消息一致；一行一个 block |
 
-`RichSpan.type`（`raw?: unknown` 预留给需要原始 seg 的消费方，当前适配器不填充）：
+`RichSpan.type`（每个由平台 seg 生成的 span 都带 `raw?: unknown`——该 seg 的**原始内容**；结构随平台变化，
+只作补充，稳定字段请用下表的规范化字段）：
 
 | type | 含义 | 相关字段 |
 |---|---|---|
@@ -253,6 +254,22 @@ const sub = chat.onInbound((msg) => {
 | `code_block` | 代码块 | `language?`、`text` |
 | `emotion` | 表情 | `text`（`emoji_type` 或 key） |
 | `hr` | 分割线 | — |
+
+> **`raw` 的稳定性边界**：`raw` 是平台原始 seg 的**浅拷贝快照**（飞书侧即 `{ tag, text, style, href,
+> user_id, user_name, image_key, language, ... }`，字段原样保留；未知 tag 降级出的 `text` span 同样带 `raw`）。
+> 它**不是稳定契约**：字段集合与含义由平台决定、可能随平台版本增减；需要跨渠道/跨版本稳定的数据，
+> 请使用上表的规范化字段。消费方修改 `raw` 不会改写解析结果。
+
+```ts
+const sub = chat.onInbound((msg) => {
+    for (const span of msg.rich?.blocks.flat() ?? []) {
+        const seg = span.raw as { style?: string[]; emoji_type?: string } | undefined
+        // 规范化字段只保留一种样式；需要完整 style 列表等平台细节时读 raw
+        if (span.type === 'text' && seg?.style?.length) console.log('styles:', seg.style)
+        if (span.type === 'emotion') console.log('emoji_type:', seg?.emoji_type ?? span.text)
+    }
+})
+```
 
 ```ts
 import type { RichContent } from 'dsh-chat-interaction'

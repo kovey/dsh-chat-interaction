@@ -95,19 +95,37 @@ function postBody(parsed) {
     }
     return parsed;
 }
-/** Map one Feishu post segment onto a canonical span. */
+/**
+ * Snapshot of the platform segment carried on `RichSpan.raw`.
+ *
+ * A shallow copy (`{ ...seg }`), never the parsed object itself: consumers are
+ * allowed to poke at `raw`, and handing them the parser's own object would let
+ * an in-place edit leak into the rest of the parsed payload (every span of the
+ * message is built from one JSON.parse result). Deep-copying would buy nothing
+ * here — the parser never mutates nested values, and `raw` is a supplement, not
+ * a stable contract (its shape follows the platform, see API.md).
+ */
+function segSnapshot(seg) {
+    return { ...seg };
+}
+/**
+ * Map one Feishu post segment onto a canonical span. Every span keeps the
+ * original segment on `raw` (platform-specific fields included) so a consumer
+ * can reach data the normalized fields do not model.
+ */
 function postSpan(seg, imagePaths, imgIndex) {
     const tag = asText(seg.tag);
+    const raw = segSnapshot(seg);
     switch (tag) {
         case 'text': {
             const styles = Array.isArray(seg.style) ? seg.style.map((s) => asText(s)) : [];
             const styled = styles
                 .map((s) => POST_STYLE_TYPES[s])
                 .find((t) => t !== undefined);
-            return { type: styled ?? 'text', text: asText(seg.text) };
+            return { type: styled ?? 'text', text: asText(seg.text), raw };
         }
         case 'a':
-            return { type: 'link', text: asText(seg.text), href: asText(seg.href) };
+            return { type: 'link', text: asText(seg.text), href: asText(seg.href), raw };
         case 'at': {
             const mentionId = asText(seg.user_id);
             const mentionName = asText(seg.user_name);
@@ -115,6 +133,7 @@ function postSpan(seg, imagePaths, imgIndex) {
                 type: 'mention',
                 ...(mentionId ? { mentionId } : {}),
                 ...(mentionName ? { mentionName, text: mentionName } : {}),
+                raw,
             };
         }
         case 'img': {
@@ -125,22 +144,23 @@ function postSpan(seg, imagePaths, imgIndex) {
                 ...(imageKey ? { imageKey } : {}),
                 // Never invent a path: only a downloaded file may be exposed.
                 ...(local ? { path: local } : {}),
+                raw,
             };
         }
         case 'code_block': {
             const language = asText(seg.language);
-            return { type: 'code_block', ...(language ? { language } : {}), text: asText(seg.text) };
+            return { type: 'code_block', ...(language ? { language } : {}), text: asText(seg.text), raw };
         }
         case 'emotion': {
             const label = asText(seg.emoji_type) || asText(seg.key);
-            return { type: 'emotion', ...(label ? { text: label } : {}) };
+            return { type: 'emotion', ...(label ? { text: label } : {}), raw };
         }
         case 'hr':
-            return { type: 'hr' };
+            return { type: 'hr', raw };
         default:
             // Unknown segment: keep its tag (or a short JSON snapshot) as text,
             // so nothing structurally disappears without a trace.
-            return { type: 'text', text: tag || JSON.stringify(seg).slice(0, 120) };
+            return { type: 'text', text: tag || JSON.stringify(seg).slice(0, 120), raw };
     }
 }
 /**
@@ -152,6 +172,9 @@ function postSpan(seg, imagePaths, imgIndex) {
  * in appearance order: the adapter downloads images in that order and passes an
  * empty string for a failed download. An image without a usable path keeps only
  * its `imageKey` — no local path is ever invented.
+ *
+ * Every produced span carries the original platform segment on `raw` (a shallow
+ * snapshot taken by `segSnapshot()`); the normalized fields stay authoritative.
  *
  * Never throws: malformed JSON / a non-object payload yields `undefined`; a
  * payload whose `content` is not an array yields `undefined` or a title-only

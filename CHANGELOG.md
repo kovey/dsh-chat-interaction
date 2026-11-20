@@ -5,6 +5,20 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
+## [未发布]
+
+### 新增 —— `RichSpan.raw` 保留飞书原始 seg
+
+- **新增**：`parseRichContent()` 为每个 span 填充 `RichSpan.raw`，值为该 span 对应飞书 post seg 的
+  **浅拷贝快照**（`{ ...seg }`，`tag/text/style/href/user_id/user_name/image_key/language` 等字段原样保留）；
+  未知 tag 降级出的 `text` span 同样带 `raw`。
+- **为什么是浅拷贝**：消费方可以自由读取/修改 `raw`，但不能通过它改写解析结果（整条 post 的 span 都来自
+  同一份 `JSON.parse` 结果）；`raw` 是补充字段，结构随平台变化，稳定数据仍看规范化字段。
+- **测试**：新增「各 span 的 `raw` 与原始 seg 深相等」「未知 tag 的 `raw` 保留自定义字段」2 条用例；
+  既有 span 深比较断言同步纳入 `raw`（未删除或放松任何断言）。`pnpm test` 全绿（260 → 262），
+  `tsc -p tsconfig.json --noEmit` 与 `tsc -p tsconfig.test.json --noEmit` 通过。
+- **文档**：API.md 的 `rich` 小节说明 `raw` 已填充、是平台原始 seg 且结构随平台变化（附读取示例）。
+
 ## [0.3.9] - 2026-11-20
 
 ### 新增 —— 入站富文本结构 `InboundMessage.rich`（飞书 post）
