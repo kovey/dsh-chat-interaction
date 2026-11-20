@@ -703,6 +703,8 @@ if (chat?.apiVersion >= 1) {
 - **入站附件**：`onInbound` 拿到与 agent 相同的消息——图片在 `imagePaths`，非图片文件在
   `files`（`{ path, name?, mime?, size?, kind? }`，已落地到 `chat-interaction/<channel>-media/`），
   下载失败进 `imageErrors` / `fileErrors`，不影响消息投递
+- **入站富文本**：飞书 `post` 消息带 `rich`（`title` + 按段落分组的 span：bold/italic/strike/underline/
+  link/mention/image/code_block/emotion/hr），第三方插件不必解析平台私有 JSON；`text` 仍是原来的扁平文本
 - **生命周期**：`registerCommand` / `onInbound` 都返回 `dispose()`，teardown 与 HMR 安全
 
 完整参考（错误码、目标解析、版本策略、示例插件）见 **[API.md](API.md)**。

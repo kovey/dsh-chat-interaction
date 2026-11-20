@@ -1,5 +1,5 @@
 import { BaseChannel } from '../channel.js';
-import type { ButtonSpec, CardSpec, ListenerStatus, SendResult } from '../types.js';
+import type { ButtonSpec, CardSpec, ListenerStatus, RichContent, SendResult } from '../types.js';
 export interface LarkEventDispatcherLike {
     register(handlers: Record<string, (data: unknown) => unknown>): unknown;
 }
@@ -64,6 +64,21 @@ export declare function extractDocIds(text: string): Array<{
 }>;
 /** Flatten text/post content into plain text. */
 export declare function parseContent(msgType: string, rawContent: string): string;
+/**
+ * Parse a Feishu `post` (rich-text) payload into the canonical structure that
+ * `InboundMessage.rich` exposes. `text` stays the flattened form (see
+ * {@link parseContent}); this adds title and paragraph-grouped spans.
+ *
+ * `imagePaths` is aligned with the `img` segments **that carry an image_key**,
+ * in appearance order: the adapter downloads images in that order and passes an
+ * empty string for a failed download. An image without a usable path keeps only
+ * its `imageKey` — no local path is ever invented.
+ *
+ * Never throws: malformed JSON / a non-object payload yields `undefined`; a
+ * payload whose `content` is not an array yields `undefined` or a title-only
+ * result when it still has a title.
+ */
+export declare function parseRichContent(rawContent: string, imagePaths?: string[]): RichContent | undefined;
 export declare function extractMentions(msg: {
     mentions?: unknown;
 }): Array<{

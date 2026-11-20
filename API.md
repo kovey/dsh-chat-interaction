@@ -233,6 +233,50 @@ const sub = chat.onInbound((msg) => {
 > 路径都指向 `<项目>/.dsh/chat-interaction/<channel>-media/`（保留期见 `mediaRetentionDays`）。
 > 同一份路径也会出现在 agent 的提示词里（`图片文件:` / `文件:` 行），所以两个消费方看到的是**同一批文件**。
 
+**富文本结构（`rich`）**：飞书 `post`（富文本）消息额外带 `rich`，观察者不必再解析平台私有 JSON。
+`text` 仍是原来的扁平文本（向后兼容）；`text` / `image` 等非 post 消息不带 `rich`。
+
+| 字段 | 含义 |
+|---|---|
+| `rich.title?: string` | 富文本标题（飞书 post 的 `title`） |
+| `rich.blocks: RichSpan[][]` | 按**原段落**分组的 span 列表，顺序与消息一致；一行一个 block |
+
+`RichSpan.type`（`raw?: unknown` 预留给需要原始 seg 的消费方，当前适配器不填充）：
+
+| type | 含义 | 相关字段 |
+|---|---|---|
+| `text` | 普通文本 | `text` |
+| `bold` / `italic` / `strike` / `underline` | 带样式的文本（飞书 `style` 映射；一个 span 只取一种样式） | `text` |
+| `link` | 超链接 | `text`、`href` |
+| `mention` | @某人 | `mentionId`（飞书 `user_id`）、`mentionName`、`text` |
+| `image` | 图片 | `imageKey`；图片已下载时带本地 `path` |
+| `code_block` | 代码块 | `language?`、`text` |
+| `emotion` | 表情 | `text`（`emoji_type` 或 key） |
+| `hr` | 分割线 | — |
+
+```ts
+const sub = chat.onInbound((msg) => {
+    if (!msg.rich) return                    // text / image 等消息没有 rich；msg.text 仍是扁平文本
+    console.log('标题:', msg.rich.title ?? '')
+    for (const block of msg.rich.blocks) {   // 每个 block 是一段
+        const line = block.map((s) => {
+            if (s.type === 'link') return `${s.text ?? ''} <${s.href ?? ''}>`
+            if (s.type === 'mention') return `@${s.mentionName ?? s.mentionId}`
+            if (s.type === 'image') return `[图片 ${s.imageKey ?? ''}${s.path ? ' → ' + s.path : ''}]`
+            if (s.type === 'hr') return '---'
+            return s.text ?? ''
+        }).join('')
+        console.log(line)
+    }
+})
+```
+
+> 图片按 `img` 在 post 中出现的顺序下载；下载成功的那张图片的 `path` 即对应 `msg.imagePaths` 里的本地文件。
+> **未下载/下载失败的图片只带 `imageKey`，不会虚构路径**（失败原因仍进 `imageErrors`）。
+>
+> 需要显式标注类型时用 `InboundMessage['rich']`（例如 `type RichContent = NonNullable<InboundMessage['rich']>`）；
+> `RichSpanType` / `RichSpan` / `RichContent` 定义在 `src/types.ts`（构建后为 `dist/types.d.ts`），通过 `InboundMessage` 结构可达。
+
 ## 错误码
 
 | code | 含义 | 常见处理 |

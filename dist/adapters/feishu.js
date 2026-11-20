@@ -65,6 +65,132 @@ export function parseContent(msgType, rawContent) {
         return rawContent;
     }
 }
+/** Feishu `post` style names → canonical span types. */
+const POST_STYLE_TYPES = {
+    bold: 'bold',
+    italic: 'italic',
+    strikethrough: 'strike',
+    underline: 'underline',
+};
+/** Coerce one platform value to text (`''` for null/undefined, no exceptions). */
+function asText(value) {
+    if (value === undefined || value === null)
+        return '';
+    return typeof value === 'string' ? value : String(value);
+}
+/**
+ * Locate the `{ title, content }` body of a post payload. Inbound events carry
+ * it directly; localized payloads (`{ zh_cn: { title, content } }`, the shape
+ * the SEND side uses) are accepted too. Falls back to the root object so a
+ * title-only payload still yields a result.
+ */
+function postBody(parsed) {
+    if (Array.isArray(parsed.content))
+        return parsed;
+    for (const locale of ['zh_cn', 'en_us', 'ja_jp']) {
+        const candidate = parsed[locale];
+        if (candidate && typeof candidate === 'object' && Array.isArray(candidate.content)) {
+            return candidate;
+        }
+    }
+    return parsed;
+}
+/** Map one Feishu post segment onto a canonical span. */
+function postSpan(seg, imagePaths, imgIndex) {
+    const tag = asText(seg.tag);
+    switch (tag) {
+        case 'text': {
+            const styles = Array.isArray(seg.style) ? seg.style.map((s) => asText(s)) : [];
+            const styled = styles
+                .map((s) => POST_STYLE_TYPES[s])
+                .find((t) => t !== undefined);
+            return { type: styled ?? 'text', text: asText(seg.text) };
+        }
+        case 'a':
+            return { type: 'link', text: asText(seg.text), href: asText(seg.href) };
+        case 'at': {
+            const mentionId = asText(seg.user_id);
+            const mentionName = asText(seg.user_name);
+            return {
+                type: 'mention',
+                ...(mentionId ? { mentionId } : {}),
+                ...(mentionName ? { mentionName, text: mentionName } : {}),
+            };
+        }
+        case 'img': {
+            const imageKey = asText(seg.image_key);
+            const local = imagePaths?.[imgIndex];
+            return {
+                type: 'image',
+                ...(imageKey ? { imageKey } : {}),
+                // Never invent a path: only a downloaded file may be exposed.
+                ...(local ? { path: local } : {}),
+            };
+        }
+        case 'code_block': {
+            const language = asText(seg.language);
+            return { type: 'code_block', ...(language ? { language } : {}), text: asText(seg.text) };
+        }
+        case 'emotion': {
+            const label = asText(seg.emoji_type) || asText(seg.key);
+            return { type: 'emotion', ...(label ? { text: label } : {}) };
+        }
+        case 'hr':
+            return { type: 'hr' };
+        default:
+            // Unknown segment: keep its tag (or a short JSON snapshot) as text,
+            // so nothing structurally disappears without a trace.
+            return { type: 'text', text: tag || JSON.stringify(seg).slice(0, 120) };
+    }
+}
+/**
+ * Parse a Feishu `post` (rich-text) payload into the canonical structure that
+ * `InboundMessage.rich` exposes. `text` stays the flattened form (see
+ * {@link parseContent}); this adds title and paragraph-grouped spans.
+ *
+ * `imagePaths` is aligned with the `img` segments **that carry an image_key**,
+ * in appearance order: the adapter downloads images in that order and passes an
+ * empty string for a failed download. An image without a usable path keeps only
+ * its `imageKey` — no local path is ever invented.
+ *
+ * Never throws: malformed JSON / a non-object payload yields `undefined`; a
+ * payload whose `content` is not an array yields `undefined` or a title-only
+ * result when it still has a title.
+ */
+export function parseRichContent(rawContent, imagePaths) {
+    let parsed;
+    try {
+        parsed = JSON.parse(rawContent);
+    }
+    catch {
+        return undefined;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        return undefined;
+    const body = postBody(parsed);
+    const title = typeof body.title === 'string' && body.title ? body.title : undefined;
+    const blocks = [];
+    let imgIndex = 0;
+    for (const paragraph of Array.isArray(body.content) ? body.content : []) {
+        if (!Array.isArray(paragraph))
+            continue;
+        const spans = [];
+        for (const rawSeg of paragraph) {
+            if (!rawSeg || typeof rawSeg !== 'object' || Array.isArray(rawSeg))
+                continue;
+            const seg = rawSeg;
+            spans.push(postSpan(seg, imagePaths, imgIndex));
+            // Only keyed image segments consume an imagePaths slot; this mirrors
+            // extractImageRefs() so download order and span order cannot drift.
+            if (seg.tag === 'img' && asText(seg.image_key))
+                imgIndex += 1;
+        }
+        blocks.push(spans);
+    }
+    if (!title && blocks.length === 0)
+        return undefined;
+    return { ...(title ? { title } : {}), blocks };
+}
 export function extractMentions(msg) {
     const out = [];
     for (const m of msg.mentions || []) {
@@ -506,6 +632,9 @@ export class FeishuChannel extends BaseChannel {
         }
         // Image landing: download into <project>/.dsh/feishu-media/, attach paths.
         const imagePaths = [];
+        // Aligned with the image refs in appearance order: '' marks a failed
+        // download so rich-text `image` spans stay aligned (no path invented).
+        const imagePathByRef = [];
         const imageErrors = [];
         const imageRefs = extractImageRefs(msgType, rawContent);
         if (imageRefs.length && this.apiClient && typeof this.apiClient.request === 'function' && msg.message_id) {
@@ -519,12 +648,14 @@ export class FeishuChannel extends BaseChannel {
                         try {
                             const p = await downloadImage(this.apiClient, String(msg.message_id), ref, mediaDir, i, this.cfg.timeoutMs);
                             imagePaths.push(p);
+                            imagePathByRef.push(p);
                             i += 1;
                         }
                         catch (e) {
                             const err = e;
                             log('warn', 'image download failed:', ref.key, err.message);
                             imageErrors.push((ref.key || '?').slice(-8) + ': ' + err.message);
+                            imagePathByRef.push('');
                         }
                     }
                 }
@@ -575,6 +706,9 @@ export class FeishuChannel extends BaseChannel {
                 }
             }
         }
+        // Rich structure: only `post` carries one. `text` above stays the
+        // flattened form, so existing consumers keep their exact output.
+        const rich = msgType === 'post' ? parseRichContent(rawContent, imagePathByRef) : undefined;
         return {
             channel: this.name,
             chatId: String(msg.chat_id || ''),
@@ -585,6 +719,7 @@ export class FeishuChannel extends BaseChannel {
             // is absent for external users. Prefer open_id and keep both for whitelists.
             ...parseSenderIdentity(sender.sender_id),
             text,
+            ...(rich ? { rich } : {}),
             docLinks: extractDocIds(text),
             mentions: mentions.map((m) => ({ id: m.openId, name: m.name })),
             isBotMentioned: botMentioned,

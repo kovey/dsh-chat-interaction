@@ -24,6 +24,65 @@ export interface DocLink {
 }
 
 /**
+ * Kind of one inline span in a rich-text message.
+ * `strike` is the platform's strikethrough style; `text` is unstyled text.
+ */
+export type RichSpanType =
+    | 'text'
+    | 'bold'
+    | 'italic'
+    | 'strike'
+    | 'underline'
+    | 'link'
+    | 'mention'
+    | 'image'
+    | 'code_block'
+    | 'emotion'
+    | 'hr'
+
+/**
+ * One inline span of a rich-text message, normalized across platforms.
+ *
+ * Which fields are populated depends on `type`: `text` for text-like spans,
+ * `href` for links, `mentionId`/`mentionName` for @-mentions, `imageKey` (+ a
+ * local `path` when the image was downloaded) for images, `language` for code
+ * blocks.
+ */
+export interface RichSpan {
+    type: RichSpanType
+    /** Visible text (also the code-block body and the emotion label). */
+    text?: string
+    /** Target URL of a `link` span. */
+    href?: string
+    /** Platform mention id (Feishu `user_id`) of a `mention` span. */
+    mentionId?: string
+    /** Display name of the mentioned user. */
+    mentionName?: string
+    /** Platform image key (Feishu `image_key`) of an `image` span. */
+    imageKey?: string
+    /** Language label of a `code_block` span, when the platform reported one. */
+    language?: string
+    /**
+     * Local absolute path of a downloaded image. Absent when the image was not
+     * downloaded — a missing path is never invented.
+     */
+    path?: string
+    /** Reserved for the original platform segment; adapters may leave it unset. */
+    raw?: unknown
+}
+
+/**
+ * Normalized rich-text body: an optional title plus spans grouped by the
+ * original paragraphs. Only platforms/message types that carry structure
+ * (`post` on Feishu) populate this; `text` stays the flattened form.
+ */
+export interface RichContent {
+    title?: string
+    /** Paragraphs in their original order; each entry is one line of spans. */
+    blocks: RichSpan[][]
+}
+
+/**
  * One inbound message normalized by a channel adapter.
  * This is the single currency of the inbound pipeline.
  */
@@ -45,6 +104,12 @@ export interface InboundMessage {
     senderUserId?: string
     /** Human-readable text (post/rich messages flattened). */
     text: string
+    /**
+     * Normalized rich-text structure (title + paragraph-grouped spans) for
+     * message types that carry one (`post`). `text` remains the flattened form,
+     * so consumers that only want plain text keep working unchanged.
+     */
+    rich?: RichContent
     /** True when this message was synthesized from an interactive-card click. */
     isCardAction?: boolean
     /** True when the bot itself was @-mentioned in a group. */

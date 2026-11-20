@@ -1,0 +1,175 @@
+/**
+ * Inbound rich text: a Feishu `post` payload must reach consumers as a
+ * normalized structure (`InboundMessage.rich`) instead of forcing every plugin
+ * to parse the platform's private JSON. The flattened `text` is untouched, so
+ * this file also pins backward compatibility with `parseContent`.
+ */
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { FeishuChannel, parseContent, parseRichContent } from '../src/adapters/feishu.js'
+import type { InboundMessage, RichSpan } from '../src/types.js'
+
+const POST = {
+    title: '周报',
+    content: [
+        [{ tag: 'text', text: '本周完成：' }, { tag: 'text', text: '登录改造', style: ['bold'] }],
+        [{ tag: 'a', text: '设计稿', href: 'https://x.cn/doc/1' }, { tag: 'at', user_id: 'ou_boss', user_name: '老板' }],
+        [{ tag: 'img', image_key: 'img_1' }],
+        [{ tag: 'code_block', language: 'TS', text: 'const a = 1' }],
+        [
+            { tag: 'text', text: '斜体', style: ['italic'] },
+            { tag: 'text', text: '删除线', style: ['strikethrough'] },
+            { tag: 'text', text: '下划线', style: ['underline'] },
+            { tag: 'emotion', emoji_type: 'SMILE' },
+            { tag: 'hr' },
+        ],
+    ],
+}
+
+/** One `im.message.receive_v1` event body (only the fields normalizeReceive reads). */
+function receiveEvent(messageType: string, content: string): Record<string, unknown> {
+    return {
+        message: {
+            message_id: 'om_rich_1',
+            chat_id: 'oc_1',
+            chat_type: 'p2p',
+            message_type: messageType,
+            content,
+            create_time: '1',
+        },
+        sender: { sender_id: { open_id: 'ou_sender' } },
+    }
+}
+
+/** The adapter is driven directly (same approach as attachments.test.ts). */
+function normalize(ch: FeishuChannel, data: Record<string, unknown>): Promise<InboundMessage> {
+    return (ch as unknown as { normalizeReceive: (d: Record<string, unknown>) => Promise<InboundMessage> })
+        .normalizeReceive(data)
+}
+
+test('parseRichContent: title, paragraph grouping and inline span semantics', () => {
+    const rich = parseRichContent(JSON.stringify(POST))
+    assert.ok(rich)
+    assert.equal(rich.title, '周报')
+    assert.equal(rich.blocks.length, 5, 'one block per original paragraph')
+
+    assert.deepEqual(rich.blocks[0], [
+        { type: 'text', text: '本周完成：' },
+        { type: 'bold', text: '登录改造' },
+    ])
+    assert.deepEqual(rich.blocks[1], [
+        { type: 'link', text: '设计稿', href: 'https://x.cn/doc/1' },
+        { type: 'mention', mentionId: 'ou_boss', mentionName: '老板', text: '老板' },
+    ])
+    assert.deepEqual(rich.blocks[2], [{ type: 'image', imageKey: 'img_1' }])
+    assert.deepEqual(rich.blocks[3], [{ type: 'code_block', language: 'TS', text: 'const a = 1' }])
+    assert.deepEqual(rich.blocks[4], [
+        { type: 'italic', text: '斜体' },
+        { type: 'strike', text: '删除线' },
+        { type: 'underline', text: '下划线' },
+        { type: 'emotion', text: 'SMILE' },
+        { type: 'hr' },
+    ])
+
+    // Unknown segments degrade to text instead of disappearing.
+    const unknown = parseRichContent(JSON.stringify({ content: [[{ tag: 'button', text: 'x' }]] }))
+    assert.deepEqual(unknown!.blocks[0], [{ type: 'text', text: 'button' }])
+
+    // Backward compatibility: the flattened output is byte-identical to before.
+    assert.equal(
+        parseContent('post', JSON.stringify(POST)),
+        '周报 本周完成： 登录改造 https://x.cn/doc/1 斜体 删除线 下划线'
+    )
+})
+
+test('parseRichContent: image spans use img order for local paths and never invent one', () => {
+    const raw = JSON.stringify({
+        content: [
+            [{ tag: 'img', image_key: 'img_a' }, { tag: 'text', text: '中间' }],
+            [{ tag: 'img', image_key: 'img_b' }, { tag: 'img', image_key: 'img_c' }],
+        ],
+    })
+    // '' is the adapter's placeholder for a failed download.
+    const rich = parseRichContent(raw, ['/media/0.png', '', '/media/2.png'])
+    assert.deepEqual(rich!.blocks[0][0], { type: 'image', imageKey: 'img_a', path: '/media/0.png' })
+    assert.deepEqual(rich!.blocks[1][0], { type: 'image', imageKey: 'img_b' }, 'failed download: key only')
+    assert.deepEqual(rich!.blocks[1][1], { type: 'image', imageKey: 'img_c', path: '/media/2.png' })
+
+    // No image mapping at all → no local path anywhere.
+    const noPaths = parseRichContent(raw)
+    assert.equal(noPaths!.blocks[0][0].path, undefined)
+    assert.equal(noPaths!.blocks[1][1].path, undefined)
+})
+
+test('parseRichContent: malformed or non-array content never throws', () => {
+    assert.equal(parseRichContent('not json'), undefined)
+    assert.equal(parseRichContent('"just a string"'), undefined)
+    assert.equal(parseRichContent('null'), undefined)
+    assert.equal(parseRichContent(JSON.stringify({ content: 'oops' })), undefined)
+    assert.deepEqual(parseRichContent(JSON.stringify({ title: '只有标题', content: 42 })), { title: '只有标题', blocks: [] })
+    assert.equal(parseRichContent(JSON.stringify({ content: [] })), undefined)
+
+    // Malformed segments are skipped; their well-formed siblings survive.
+    const mixed = parseRichContent(JSON.stringify({ content: [[null, 'x', { tag: 'text', text: 'ok' }]] }))
+    assert.deepEqual(mixed!.blocks, [[{ type: 'text', text: 'ok' }]])
+
+    // The localized wrapper used by the send side is understood too.
+    const localized = parseRichContent(JSON.stringify({
+        zh_cn: { title: '本地化', content: [[{ tag: 'text', text: '内容' }]] },
+    }))
+    assert.equal(localized!.title, '本地化')
+    assert.deepEqual(localized!.blocks[0], [{ type: 'text', text: '内容' }])
+})
+
+test('feishu post: rich image paths point at the downloaded local files', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-rich-'))
+    const ch = new FeishuChannel({ mediaDir: dir, mediaRetentionDays: 7, timeoutMs: 1000 } as never)
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
+    ;(ch as unknown as { apiClient: unknown }).apiClient = { request: async () => png }
+
+    const msg = await normalize(ch, receiveEvent('post', JSON.stringify({
+        title: '图',
+        content: [[{ tag: 'img', image_key: 'img_1' }], [{ tag: 'img', image_key: 'img_2' }]],
+    })))
+
+    assert.equal(msg.rich?.title, '图')
+    assert.equal(msg.imagePaths?.length, 2)
+    const images = msg.rich!.blocks.flat() as RichSpan[]
+    assert.equal(images.length, 2)
+    assert.equal(images[0].imageKey, 'img_1')
+    assert.equal(images[0].path, msg.imagePaths![0])
+    assert.equal(images[1].imageKey, 'img_2')
+    assert.equal(images[1].path, msg.imagePaths![1])
+    assert.ok(fs.existsSync(images[0].path!), 'downloaded image exists on disk')
+})
+
+test('normalizeReceive: rich is post-only; text/image messages keep their old shape', async () => {
+    const ch = new FeishuChannel()
+
+    const post = await normalize(ch, receiveEvent('post', JSON.stringify(POST)))
+    assert.ok(post.rich, 'post carries the structure')
+    assert.equal(
+        post.text,
+        '周报 本周完成： 登录改造 https://x.cn/doc/1 斜体 删除线 下划线',
+        'flattened text is unchanged'
+    )
+
+    const text = await normalize(ch, receiveEvent('text', JSON.stringify({ text: '你好' })))
+    assert.equal(text.text, '你好')
+    assert.equal(text.rich, undefined)
+    assert.equal('rich' in text, false, 'the optional field is absent, not undefined-valued')
+
+    const image = await normalize(ch, receiveEvent('image', JSON.stringify({ image_key: 'img_1' })))
+    assert.equal(image.rich, undefined)
+    assert.equal('rich' in image, false)
+
+    // A post whose image never downloaded keeps imageKey only.
+    const offline = await normalize(ch, receiveEvent('post', JSON.stringify({
+        content: [[{ tag: 'img', image_key: 'img_x' }]],
+    })))
+    assert.deepEqual(offline.rich!.blocks[0][0], { type: 'image', imageKey: 'img_x' })
+    assert.deepEqual(offline.imagePaths, [])
+})

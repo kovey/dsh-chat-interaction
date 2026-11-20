@@ -7,6 +7,21 @@
 
 ## [未发布]
 
+### 新增 —— 入站富文本结构 `InboundMessage.rich`（飞书 post）
+
+- **问题**：飞书 `post`（富文本）消息被 `parseContent()` 扁平化成纯文本，样式、@、图片位置、代码块
+  全部丢失，依赖本插件的第三方插件只能自己解析飞书私有 JSON。
+- **新增**：`InboundMessage.rich?: RichContent`（`{ title?, blocks: RichSpan[][] }`），`blocks` 按原段落
+  分组；span 类型 `text/bold/italic/strike/underline/link/mention/image/code_block/emotion/hr`，
+  字段 `text/href/mentionId/mentionName/imageKey/language/path`（`raw?` 预留给原始 seg，当前不填充）。
+- **飞书**：导出 `parseRichContent(rawContent, imagePaths?)`；`normalizeReceive` 仅在
+  `message_type=post` 时填充 `rich`。已下载图片按 `img` 出现顺序把本地 `path` 挂到对应 `image` span；
+  未下载/下载失败的图片只保留 `imageKey`，不虚构路径。
+- **兼容**：`InboundMessage.text` 的扁平结果不变（`parseContent` 未改动，既有断言原样保留）；
+  `text` / `image` 等非 post 消息不带 `rich`。
+- **测试**：新增 `test/rich-text.test.ts`（span 映射、图片路径对齐、非法 content 不抛、post-only 与扁平兼容）。
+- `pnpm test` 全绿（254 → 259），`tsc -p tsconfig.json --noEmit` 与 `tsc -p tsconfig.test.json --noEmit` 通过。
+
 ### 适配 DSH v0.2.2-rc.4（经 rc.3，逐包解包对比核实）
 
 - devDependencies → **0.2.2-rc.4**（dsh-agent / dsh-llm / dsh-tools / dsh-user-approval）；
