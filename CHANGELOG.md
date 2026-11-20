@@ -5,7 +5,7 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
-## [未发布]
+## [0.3.10] - 2026-11-20
 
 ### 新增 —— `RichSpan.raw` 保留飞书原始 seg
 
@@ -535,6 +535,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.10]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.10
 [0.3.9]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.9
 [0.3.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.8
 [0.3.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.7

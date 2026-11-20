@@ -67,7 +67,11 @@ export interface RichSpan {
      * downloaded — a missing path is never invented.
      */
     path?: string
-    /** Reserved for the original platform segment; adapters may leave it unset. */
+    /**
+     * The platform's original segment this span was derived from; adapters that
+     * can supply it (Feishu `post`) set a shallow copy, so fields we do not
+     * normalise stay available here.
+     */
     raw?: unknown
 }
 
