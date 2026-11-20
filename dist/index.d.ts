@@ -23,7 +23,7 @@
  *   hub.addChannel(createWeComChannel({ corpId, corpSecret, ... }))
  * @module dsh-chat-interaction
  */
-export type { AuthState, ButtonSpec, CardSpec, ChannelCapabilities, ChannelDescriptor, ChatType, DocLink, FollowupContext, InboundMessage, ListenerStatus, Mention, ScoreLevel, ScoreResult, SendResult, WaitResult, } from './types.js';
+export type { AuthState, ButtonSpec, CardSpec, ChannelCapabilities, ChannelDescriptor, ChatType, DocLink, FollowupContext, InboundMessage, ListenerStatus, Mention, RichContent, RichSpan, RichSpanType, ScoreLevel, ScoreResult, SendResult, WaitResult, } from './types.js';
 export { BaseChannel, descriptorOf } from './channel.js';
 export type { ChannelAdapter, InboundHandler } from './channel.js';
 export { InteractionHub } from './hub.js';

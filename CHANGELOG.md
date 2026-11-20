@@ -5,7 +5,7 @@
 
 > 安装：`dsh plugin --profile <profile> add github:kovey/dsh-chat-interaction#<tag>`
 
-## [未发布]
+## [0.3.9] - 2026-11-20
 
 ### 新增 —— 入站富文本结构 `InboundMessage.rich`（飞书 post）
 
@@ -19,8 +19,12 @@
   未下载/下载失败的图片只保留 `imageKey`，不虚构路径。
 - **兼容**：`InboundMessage.text` 的扁平结果不变（`parseContent` 未改动，既有断言原样保留）；
   `text` / `image` 等非 post 消息不带 `rich`。
-- **测试**：新增 `test/rich-text.test.ts`（span 映射、图片路径对齐、非法 content 不抛、post-only 与扁平兼容）。
-- `pnpm test` 全绿（254 → 259），`tsc -p tsconfig.json --noEmit` 与 `tsc -p tsconfig.test.json --noEmit` 通过。
+- **类型导出**：`RichContent` / `RichSpan` / `RichSpanType` 从**包根**导出
+  （`import type { RichContent } from 'dsh-chat-interaction'`）；API.md 的消费示例改用包根导入；
+  `dist/index.d.ts` 同步导出 —— **纯 type-only**，运行期导出零变化。
+- **测试**：新增 `test/rich-text.test.ts`（span 映射、图片路径对齐、非法 content 不抛、post-only 与扁平兼容）
+  与包根类型导入用例。
+- `pnpm test` 全绿（254 → 260：富文本 5 项 + 包根类型导入 1 项），`tsc -p tsconfig.json --noEmit` 与 `tsc -p tsconfig.test.json --noEmit` 通过。
 
 ### 适配 DSH v0.2.2-rc.4（经 rc.3，逐包解包对比核实）
 
@@ -37,8 +41,8 @@
 - 文档：README 顶部基线、「DSH 版本兼容性」逐版本核实行、UPGRADE 前置条件与版本矩阵同步到 rc.4
 - 构建注记：pnpm 12 默认的供应链策略（`minimumReleaseAge` = 24h）会拒绝锁文件里"过新"的包。
   rc.4 发布（2026-11-17T16:39Z）后 24h 内 `pnpm install --frozen-lockfile` 会被策略拒绝；
-  本次用非 frozen 安装完成，并自动生成**未跟踪**的 `pnpm-workspace.yaml`（其中 `minimumReleaseAgeExclude`
-  只豁免这 14 个 rc.4 包）。**该文件是否保留/提交由人决定**，本段不把它视为已交付内容
+  本次用非 frozen 安装完成，并自动生成 `pnpm-workspace.yaml`（其中 `minimumReleaseAgeExclude`
+  只豁免这 14 个 rc.4 包）。**已提交保留**（提交 `d59dd80`），属于本版交付内容
 
 ## [0.3.8] - 2026-11-17
 
@@ -517,6 +521,7 @@
   `session.events → snapshotEvents()` 破坏性变化
 - 安装：`github:` 直装（构建产物入库，免构建）；自带 `cordis.patch.yml`
 
+[0.3.9]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.9
 [0.3.8]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.8
 [0.3.7]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.7
 [0.3.6]: https://github.com/kovey/dsh-chat-interaction/releases/tag/v0.3.6

@@ -10,7 +10,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { FeishuChannel, parseContent, parseRichContent } from '../src/adapters/feishu.js'
-import type { InboundMessage, RichSpan } from '../src/types.js'
+import type { InboundMessage } from '../src/types.js'
+import type { RichContent, RichSpan, RichSpanType } from '../src/index.js'
 
 const POST = {
     title: '周报',
@@ -172,4 +173,27 @@ test('normalizeReceive: rich is post-only; text/image messages keep their old sh
     })))
     assert.deepEqual(offline.rich!.blocks[0][0], { type: 'image', imageKey: 'img_x' })
     assert.deepEqual(offline.imagePaths, [])
+})
+
+test('rich contracts are importable from the package root (type-only)', () => {
+    // `RichContent` / `RichSpan` / `RichSpanType` come from `../src/index.js`
+    // (the package root), not from the internal `types.js` path — consumers must
+    // be able to write `import type { RichContent } from 'dsh-chat-interaction'`.
+    // `import type` is erased at compile time, so this adds no runtime export:
+    // the assertions below only inspect a plain object.
+    const bold: RichSpan = { type: 'bold', text: '登录改造' }
+    const spanType: RichSpanType = bold.type
+    const content: RichContent = {
+        title: '周报',
+        blocks: [
+            [bold, { type: 'link', text: '设计稿', href: 'https://x.cn/doc/1' }],
+            [{ type: 'image', imageKey: 'img_1', path: '/tmp/img_1.png' }],
+        ],
+    }
+
+    assert.equal(spanType, 'bold', 'RichSpanType is the span discriminator')
+    assert.equal(content.title, '周报')
+    assert.equal(content.blocks.length, 2)
+    assert.deepEqual(content.blocks[0]!.map((s) => s.type), ['bold', 'link'])
+    assert.equal(content.blocks[1]![0]!.imageKey, 'img_1')
 })

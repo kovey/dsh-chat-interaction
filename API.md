@@ -255,10 +255,13 @@ const sub = chat.onInbound((msg) => {
 | `hr` | 分割线 | — |
 
 ```ts
+import type { RichContent } from 'dsh-chat-interaction'
+
 const sub = chat.onInbound((msg) => {
-    if (!msg.rich) return                    // text / image 等消息没有 rich；msg.text 仍是扁平文本
-    console.log('标题:', msg.rich.title ?? '')
-    for (const block of msg.rich.blocks) {   // 每个 block 是一段
+    const rich: RichContent | undefined = msg.rich
+    if (!rich) return                        // text / image 等消息没有 rich；msg.text 仍是扁平文本
+    console.log('标题:', rich.title ?? '')
+    for (const block of rich.blocks) {       // 每个 block 是一段
         const line = block.map((s) => {
             if (s.type === 'link') return `${s.text ?? ''} <${s.href ?? ''}>`
             if (s.type === 'mention') return `@${s.mentionName ?? s.mentionId}`
@@ -274,8 +277,8 @@ const sub = chat.onInbound((msg) => {
 > 图片按 `img` 在 post 中出现的顺序下载；下载成功的那张图片的 `path` 即对应 `msg.imagePaths` 里的本地文件。
 > **未下载/下载失败的图片只带 `imageKey`，不会虚构路径**（失败原因仍进 `imageErrors`）。
 >
-> 需要显式标注类型时用 `InboundMessage['rich']`（例如 `type RichContent = NonNullable<InboundMessage['rich']>`）；
-> `RichSpanType` / `RichSpan` / `RichContent` 定义在 `src/types.ts`（构建后为 `dist/types.d.ts`），通过 `InboundMessage` 结构可达。
+> 类型从**包根**导入：`import type { RichContent, RichSpan, RichSpanType } from 'dsh-chat-interaction'`
+> （`InboundMessage['rich']` 的等价写法仍可用）。三者定义在 `src/types.ts`，构建后为 `dist/types.d.ts`。
 
 ## 错误码
 
